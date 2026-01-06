@@ -661,7 +661,13 @@ class DeepCFRVisualizer:
             self.strategy_text.config(state=tk.NORMAL)
             self.strategy_text.delete("1.0", tk.END)
             self.strategy_text.insert("1.0", f"Iteration {metrics.iteration}\n")
-            self.strategy_text.insert(tk.END, f"NashConv: {metrics.nash_conv:.6f}\n")
+
+            # Handle None NashConv (e.g., for river_holdem)
+            if metrics.nash_conv is not None:
+                self.strategy_text.insert(tk.END, f"NashConv: {metrics.nash_conv:.6f}\n")
+            else:
+                self.strategy_text.insert(tk.END, "NashConv: N/A (use head-to-head evaluation)\n")
+
             self.strategy_text.insert(tk.END, f"Loss: {metrics.loss:.6f}\n")
             self.strategy_text.insert(tk.END, f"Value Loss: {metrics.value_loss:.6f}\n")
             self.strategy_text.insert(tk.END, f"Buffer: {metrics.buffer_size} ({metrics.buffer_fill_pct:.1f}%)\n")
