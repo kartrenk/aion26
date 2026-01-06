@@ -190,16 +190,21 @@ def kuhn_vanilla_config() -> AionConfig:
 def river_holdem_config() -> AionConfig:
     """Texas Hold'em River endgame solving with VR-PDCFR+.
 
-    Configured for 52-card poker with larger buffer and batch sizes.
+    Configured for 52-card poker with optimized buffer and batch sizes.
     Uses head-to-head evaluation instead of NashConv.
+
+    Key settings:
+    - Buffer: 30k (fills by iter 10k at ~3 samples/iter)
+    - Batch: 1024 (3.4% coverage when buffer full)
+    - Gradient clipping prevents divergence
     """
     return AionConfig(
         name="river_holdem",
         game=GameConfig(name="river_holdem"),
         training=TrainingConfig(
             iterations=10000,
-            batch_size=1024,
-            buffer_capacity=100000,
+            batch_size=1024,  # 8x larger than default - critical for convergence
+            buffer_capacity=30000,  # Reduced from 100k to ensure buffer fills
             eval_every=1000,
             log_every=100
         ),

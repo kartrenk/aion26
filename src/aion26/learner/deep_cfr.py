@@ -456,6 +456,11 @@ class DeepCFRTrainer:
         # Backward pass
         self.optimizer.zero_grad()
         loss.backward()
+
+        # Gradient clipping to prevent divergence
+        # Critical for River Hold'em with large state space
+        torch.nn.utils.clip_grad_norm_(self.advantage_net.parameters(), max_norm=1.0)
+
         self.optimizer.step()
 
         # Track metrics
@@ -493,6 +498,10 @@ class DeepCFRTrainer:
         # Backward pass
         self.value_optimizer.zero_grad()
         loss.backward()
+
+        # Gradient clipping to prevent divergence
+        torch.nn.utils.clip_grad_norm_(self.value_net.parameters(), max_norm=1.0)
+
         self.value_optimizer.step()
 
         return loss.item()

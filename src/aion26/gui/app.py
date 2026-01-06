@@ -583,10 +583,12 @@ class DeepCFRVisualizer:
 
         # Update buffer capacity and iterations based on game
         if game == "river_holdem":
-            # River Hold'em needs large buffer due to 52-card state space
-            self.buffer_capacity_var.set("100000")
+            # River Hold'em: Optimized for convergence
+            # Buffer fills at ~10k iters (3 samples/iter)
+            # Batch size ensures 3.4% coverage
+            self.buffer_capacity_var.set("30000")  # Reduced from 100k
             self.iterations_var.set("10000")
-            self.batch_size_var.set("1024")
+            self.batch_size_var.set("1024")  # Critical: 8x larger than default
         elif game == "leduc":
             # Leduc poker - medium complexity
             self.buffer_capacity_var.set("10000")
