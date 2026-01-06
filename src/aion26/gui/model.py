@@ -18,9 +18,10 @@ logger = logging.getLogger(__name__)
 
 from aion26.config import AionConfig
 from aion26.learner.deep_cfr import DeepCFRTrainer
-from aion26.deep_cfr.networks import KuhnEncoder, LeducEncoder
+from aion26.deep_cfr.networks import KuhnEncoder, LeducEncoder, HoldemEncoder
 from aion26.games.kuhn import new_kuhn_game
 from aion26.games.leduc import LeducPoker
+from aion26.games.river_holdem import new_river_holdem_game
 from aion26.metrics.exploitability import compute_nash_conv
 from aion26.learner.discounting import (
     PDCFRScheduler,
@@ -99,6 +100,12 @@ class TrainingThread(threading.Thread):
             input_size = encoder.input_size
             output_size = 3  # Fold, Check, or Bet
             logger.info(f"Game: Leduc Poker, input_size={input_size}, output_size={output_size}")
+        elif self.config.game.name == "river_holdem":
+            initial_state = new_river_holdem_game()
+            encoder = HoldemEncoder()
+            input_size = encoder.input_size
+            output_size = 4  # Fold, Check/Call, Bet Pot, All-In
+            logger.info(f"Game: River Hold'em, input_size={input_size}, output_size={output_size}")
         else:
             raise ValueError(f"Unknown game: {self.config.game.name}")
 
@@ -196,14 +203,21 @@ class TrainingThread(threading.Thread):
                 if (i + 1) % 10 == 0:
                     logger.debug(f"Iter {i+1}: loss={metrics['loss']:.4f}, buffer={metrics['buffer_size']}/{self.config.training.buffer_capacity}")
 
-                # Compute NashConv periodically
+                # Compute NashConv periodically (skip for river_holdem - infeasible)
                 nash_conv = None
                 strategy = None
                 if (i + 1) % self.config.training.eval_every == 0:
-                    logger.info(f"Computing NashConv at iteration {i+1}...")
                     strategy = self._get_average_strategy()
-                    nash_conv = compute_nash_conv(self.trainer.initial_state, strategy)
-                    logger.info(f"NashConv at iteration {i+1}: {nash_conv:.6f}")
+
+                    # Only compute NashConv for small games (Kuhn, Leduc)
+                    # For River Hold'em, use head-to-head evaluation instead
+                    if self.config.game.name in ["kuhn", "leduc"]:
+                        logger.info(f"Computing NashConv at iteration {i+1}...")
+                        nash_conv = compute_nash_conv(self.trainer.initial_state, strategy)
+                        logger.info(f"NashConv at iteration {i+1}: {nash_conv:.6f}")
+                    else:
+                        logger.info(f"Skipping NashConv for {self.config.game.name} (use head-to-head evaluation instead)")
+                        nash_conv = None
 
                 # Send metrics to GUI every iteration for real-time progress
                 # (but only include strategy/nashconv when computed)

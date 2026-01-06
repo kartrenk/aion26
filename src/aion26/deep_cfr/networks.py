@@ -3,6 +3,8 @@
 This module provides:
 - CardEmbedding: One-hot encoding for card ranks
 - KuhnEncoder: State encoder for Kuhn Poker
+- LeducEncoder: State encoder for Leduc Poker
+- HoldemEncoder: State encoder for Texas Hold'em River (with hand rank features)
 - DeepCFRNetwork: MLP for regret/strategy approximation
 - ValueNetwork: MLP for state value estimation (Variance Reduction baseline)
 """
@@ -14,6 +16,14 @@ from typing import Optional
 
 from aion26.games.kuhn import KuhnPoker, JACK, QUEEN, KING
 from aion26.games.leduc import LeducPoker, Card
+from aion26.games.river_holdem import TexasHoldemRiver
+
+# Import treys for hand evaluation
+try:
+    from treys import Card as TreysCard, Evaluator
+    TREYS_AVAILABLE = True
+except ImportError:
+    TREYS_AVAILABLE = False
 
 
 class CardEmbedding:
@@ -533,3 +543,211 @@ class ValueNetwork(nn.Module):
             f"hidden={self.hidden_size}x{self.num_hidden_layers}, "
             f"output=1)"
         )
+
+
+class HoldemEncoder:
+    """Encoder that converts a Texas Hold'em River state into a feature tensor.
+
+    This encoder is critical for the endgame solving strategy. It extracts features
+    that capture both the absolute hand strength and relative board texture.
+
+    Features extracted:
+    1. Hand Rank (one-hot, 10 dims): Rank category from treys evaluator
+       - 0: High Card
+       - 1: One Pair
+       - 2: Two Pair
+       - 3: Three of a Kind
+       - 4: Straight
+       - 5: Flush
+       - 6: Full House
+       - 7: Four of a Kind
+       - 8: Straight Flush
+       - 9: Royal Flush
+
+    2. Hole Cards (4 dims): Normalized rank and suit for 2 hole cards
+       - Rank: 0-12 normalized to [0, 1]
+       - Suit: 0-3 normalized to [0, 1]
+
+    3. Board Cards (10 dims): Normalized rank and suit for 5 board cards
+       - Same encoding as hole cards
+
+    4. Betting Context (7 dims):
+       - Pot size (normalized)
+       - Player 0 stack (normalized)
+       - Player 1 stack (normalized)
+       - Current bet (normalized)
+       - Player 0 invested (normalized)
+       - Player 1 invested (normalized)
+       - Pot odds (call_amount / (pot + call_amount))
+
+    Total: 10 + 4 + 10 + 7 = 31 dimensions
+
+    Example:
+        state = TexasHoldemRiver(...)
+        encoder = HoldemEncoder()
+        features = encoder.encode(state)
+        # features will be a tensor of shape (31,)
+    """
+
+    def __init__(self, max_pot: float = 500.0, max_stack: float = 200.0):
+        """Initialize encoder.
+
+        Args:
+            max_pot: Maximum pot size for normalization (default: 500)
+            max_stack: Maximum stack size for normalization (default: 200)
+        """
+        if not TREYS_AVAILABLE:
+            raise ImportError("treys library is required for HoldemEncoder. Install with: pip install treys")
+
+        self.max_pot = max_pot
+        self.max_stack = max_stack
+        self.input_size = 31  # Hand rank (10) + Hole cards (4) + Board (10) + Context (7)
+        self.evaluator = Evaluator()
+
+    def _get_hand_rank_category(self, hand: list[int], board: list[int]) -> int:
+        """Get hand rank category (0-9) using treys evaluator.
+
+        Args:
+            hand: 2 hole cards (treys int representation)
+            board: 5 board cards (treys int representation)
+
+        Returns:
+            Integer 0-9 representing hand rank category
+            Lower rank value = better hand in treys (we invert this)
+        """
+        # Evaluate hand (lower is better in treys)
+        rank = self.evaluator.evaluate(board, hand)
+
+        # Convert to category (0-9)
+        # Treys rank ranges:
+        # Royal Flush: 1
+        # Straight Flush: 2-10
+        # Four of a Kind: 11-166
+        # Full House: 167-322
+        # Flush: 323-1599
+        # Straight: 1600-1609
+        # Three of a Kind: 1610-2467
+        # Two Pair: 2468-3325
+        # One Pair: 3326-6185
+        # High Card: 6186-7462
+
+        if rank == 1:
+            return 9  # Royal Flush
+        elif rank <= 10:
+            return 8  # Straight Flush
+        elif rank <= 166:
+            return 7  # Four of a Kind
+        elif rank <= 322:
+            return 6  # Full House
+        elif rank <= 1599:
+            return 5  # Flush
+        elif rank <= 1609:
+            return 4  # Straight
+        elif rank <= 2467:
+            return 3  # Three of a Kind
+        elif rank <= 3325:
+            return 2  # Two Pair
+        elif rank <= 6185:
+            return 1  # One Pair
+        else:
+            return 0  # High Card
+
+    def _encode_card(self, card: int) -> np.ndarray:
+        """Encode a single card (treys format) into rank and suit features.
+
+        Args:
+            card: Card in treys int representation
+
+        Returns:
+            Array of shape (2,) with [normalized_rank, normalized_suit]
+        """
+        rank = TreysCard.get_rank_int(card)  # 0-12 (Deuce to Ace)
+        suit = TreysCard.get_suit_int(card)  # 0-3
+
+        return np.array([
+            rank / 12.0,  # Normalize rank to [0, 1]
+            suit / 3.0    # Normalize suit to [0, 1]
+        ], dtype=np.float32)
+
+    def encode(self, state: TexasHoldemRiver, player: Optional[int] = None) -> torch.FloatTensor:
+        """Encode a Texas Hold'em River state into a feature tensor.
+
+        Args:
+            state: The TexasHoldemRiver game state
+            player: Which player's perspective to encode from.
+                   If None, uses state.current_player()
+
+        Returns:
+            Feature tensor of shape (31,) containing:
+            - Hand rank category one-hot (10 dims)
+            - Hole cards features (4 dims)
+            - Board cards features (10 dims)
+            - Betting context (7 dims)
+
+        Raises:
+            ValueError: If state is terminal, chance node, or cards not dealt
+        """
+        if player is None:
+            player = state.current_player()
+
+        if player == -1:
+            raise ValueError("Cannot encode terminal or chance node state")
+
+        if not state.is_dealt:
+            raise ValueError("Cannot encode state before cards are dealt")
+
+        # 1. Hand rank category (one-hot, 10 dims)
+        hand = state.hands[player]
+        board = state.board
+        rank_category = self._get_hand_rank_category(hand, board)
+
+        rank_features = np.zeros(10, dtype=np.float32)
+        rank_features[rank_category] = 1.0
+
+        # 2. Hole cards features (4 dims: 2 cards × 2 features each)
+        hole_features = np.concatenate([
+            self._encode_card(hand[0]),
+            self._encode_card(hand[1])
+        ])
+
+        # 3. Board cards features (10 dims: 5 cards × 2 features each)
+        board_features = np.concatenate([
+            self._encode_card(board[i]) for i in range(5)
+        ])
+
+        # 4. Betting context (7 dims)
+        current_invested = state.player_0_invested if player == 0 else state.player_1_invested
+        opponent_invested = state.player_1_invested if player == 0 else state.player_0_invested
+
+        # Calculate pot odds
+        call_amount = max(0, state.current_bet - current_invested)
+        pot_after_call = state.pot + call_amount
+        pot_odds = call_amount / pot_after_call if pot_after_call > 0 else 0.0
+
+        context_features = np.array([
+            state.pot / self.max_pot,
+            state.stacks[0] / self.max_stack,
+            state.stacks[1] / self.max_stack,
+            state.current_bet / self.max_stack,
+            state.player_0_invested / self.max_stack,
+            state.player_1_invested / self.max_stack,
+            pot_odds
+        ], dtype=np.float32)
+
+        # Concatenate all features
+        all_features = np.concatenate([
+            rank_features,    # 10 dims
+            hole_features,    # 4 dims
+            board_features,   # 10 dims
+            context_features  # 7 dims
+        ])  # Total: 31 dims
+
+        return torch.from_numpy(all_features)
+
+    def feature_size(self) -> int:
+        """Get the dimensionality of the encoded features.
+
+        Returns:
+            31 (10 rank + 4 hole + 10 board + 7 context)
+        """
+        return 31

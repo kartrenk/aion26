@@ -15,9 +15,10 @@ import yaml
 class GameConfig:
     """Game selection and parameters."""
 
-    name: Literal["kuhn", "leduc"] = "leduc"
+    name: Literal["kuhn", "leduc", "river_holdem"] = "leduc"
     # Future: Add game-specific parameters here
     # e.g., leduc_suits: int = 2, leduc_ranks: int = 3
+    # river_holdem: pot size, stack size, etc.
 
 
 @dataclass
@@ -183,4 +184,31 @@ def kuhn_vanilla_config() -> AionConfig:
         training=TrainingConfig(iterations=500, batch_size=64, buffer_capacity=1000),
         model=ModelConfig(hidden_size=64, num_hidden_layers=3, learning_rate=0.001),
         algorithm=AlgorithmConfig(use_vr=False, scheduler_type="linear", gamma=1.0),
+    )
+
+
+def river_holdem_config() -> AionConfig:
+    """Texas Hold'em River endgame solving with VR-PDCFR+.
+
+    Configured for 52-card poker with larger buffer and batch sizes.
+    Uses head-to-head evaluation instead of NashConv.
+    """
+    return AionConfig(
+        name="river_holdem",
+        game=GameConfig(name="river_holdem"),
+        training=TrainingConfig(
+            iterations=10000,
+            batch_size=1024,
+            buffer_capacity=100000,
+            eval_every=1000,
+            log_every=100
+        ),
+        model=ModelConfig(hidden_size=128, num_hidden_layers=3, learning_rate=0.001),
+        algorithm=AlgorithmConfig(
+            use_vr=True,
+            scheduler_type="pdcfr",
+            alpha=2.0,
+            beta=0.5,
+            gamma=1.0
+        ),
     )

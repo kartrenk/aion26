@@ -262,7 +262,7 @@ class DeepCFRVisualizer:
         ttk.Label(parent, text="Game:").grid(row=row, column=0, sticky=tk.W, pady=5)
         self.game_var = tk.StringVar(value="leduc")
         game_combo = ttk.Combobox(
-            parent, textvariable=self.game_var, values=["kuhn", "leduc"], state="readonly"
+            parent, textvariable=self.game_var, values=["kuhn", "leduc", "river_holdem"], state="readonly"
         )
         game_combo.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=5)
         row += 1
