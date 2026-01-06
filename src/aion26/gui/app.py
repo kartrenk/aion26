@@ -87,10 +87,11 @@ def _convert_strategy_to_matrix(strategy_dict: dict, game_name: str) -> dict:
 
     For Leduc: Creates a 3×3 matrix (private card × board card) for Round 2 states.
     For Kuhn: Shows betting tree structure.
+    For River Hold'em: Groups strategies by hand strength category.
 
     Args:
         strategy_dict: Dictionary mapping info_state string to action probabilities
-        game_name: Name of the game ("kuhn" or "leduc")
+        game_name: Name of the game ("kuhn", "leduc", or "river_holdem")
 
     Returns:
         Dictionary with matrix data structure
@@ -98,7 +99,111 @@ def _convert_strategy_to_matrix(strategy_dict: dict, game_name: str) -> dict:
     if not strategy_dict:
         return {"game": game_name, "matrix": None}
 
-    if game_name == "leduc":
+    if game_name == "river_holdem":
+        # For River Hold'em, group strategies by hand rank category
+        try:
+            from treys import Card, Evaluator
+        except ImportError:
+            return {"game": game_name, "matrix": None, "error": "treys not installed"}
+
+        # Hand rank categories (from HoldemEncoder)
+        categories = [
+            "High Card", "One Pair", "Two Pair", "Three of a Kind",
+            "Straight", "Flush", "Full House", "Four of a Kind",
+            "Straight Flush", "Royal Flush"
+        ]
+
+        # Initialize category data
+        category_data = {i: {"fold": [], "check_call": [], "bet_pot": [], "all_in": []}
+                        for i in range(10)}
+
+        evaluator = Evaluator()
+
+        # Parse each info state and categorize
+        for info_state, strategy in strategy_dict.items():
+            try:
+                # Parse info state: "hand|board|history|pot|stacks|bet"
+                parts = info_state.split("|")
+                if len(parts) < 2:
+                    continue
+
+                hand_str = parts[0]  # e.g., "Ah2c"
+                board_str = parts[1]  # e.g., "KhQhJh2s3d"
+
+                # Parse hand cards (2 cards, each 2 chars)
+                if len(hand_str) < 4:
+                    continue
+                hand = [
+                    Card.new(hand_str[0:2]),
+                    Card.new(hand_str[2:4])
+                ]
+
+                # Parse board cards (5 cards, each 2 chars)
+                if len(board_str) < 10:
+                    continue
+                board = [
+                    Card.new(board_str[0:2]),
+                    Card.new(board_str[2:4]),
+                    Card.new(board_str[4:6]),
+                    Card.new(board_str[6:8]),
+                    Card.new(board_str[8:10])
+                ]
+
+                # Evaluate hand and get category
+                rank = evaluator.evaluate(board, hand)
+
+                # Convert treys rank to category (0-9)
+                if rank == 1:
+                    category = 9  # Royal Flush
+                elif rank <= 10:
+                    category = 8  # Straight Flush
+                elif rank <= 166:
+                    category = 7  # Four of a Kind
+                elif rank <= 322:
+                    category = 6  # Full House
+                elif rank <= 1599:
+                    category = 5  # Flush
+                elif rank <= 1609:
+                    category = 4  # Straight
+                elif rank <= 2467:
+                    category = 3  # Three of a Kind
+                elif rank <= 3325:
+                    category = 2  # Two Pair
+                elif rank <= 6185:
+                    category = 1  # One Pair
+                else:
+                    category = 0  # High Card
+
+                # Store strategy (4 actions: fold, check/call, bet pot, all-in)
+                if len(strategy) >= 4:
+                    category_data[category]["fold"].append(strategy[0])
+                    category_data[category]["check_call"].append(strategy[1])
+                    category_data[category]["bet_pot"].append(strategy[2])
+                    category_data[category]["all_in"].append(strategy[3])
+
+            except Exception as e:
+                # Skip invalid states
+                continue
+
+        # Average strategies for each category
+        category_avg = {}
+        for cat_idx, actions in category_data.items():
+            if actions["fold"]:  # If we have data for this category
+                category_avg[cat_idx] = {
+                    "fold": np.mean(actions["fold"]),
+                    "check_call": np.mean(actions["check_call"]),
+                    "bet_pot": np.mean(actions["bet_pot"]),
+                    "all_in": np.mean(actions["all_in"]),
+                    "count": len(actions["fold"]),
+                }
+
+        return {
+            "game": "river_holdem",
+            "categories": categories,
+            "matrix": category_avg,
+        }
+
+    elif game_name == "leduc":
         # Create 3×3 matrix for Leduc Round 2 (private × board)
         ranks = ["J", "Q", "K"]
         suits = ["s", "h"]  # Spades and hearts
@@ -789,6 +894,8 @@ class DeepCFRVisualizer:
                 self._draw_leduc_matrix(matrix_data)
             elif game_name == "kuhn":
                 self._draw_kuhn_tree(matrix_data)
+            elif game_name == "river_holdem":
+                self._draw_river_holdem_bars(matrix_data)
 
             # Adjust layout
             self.matrix_fig.tight_layout()
@@ -943,6 +1050,84 @@ class DeepCFRVisualizer:
         self.matrix_ax.set_xlim(0, 1)
         self.matrix_ax.set_ylim(0, 1)
         self.matrix_ax.axis('off')
+
+    def _draw_river_holdem_bars(self, matrix_data: dict):
+        """Draw grouped bar chart for River Hold'em strategies by hand rank.
+
+        Args:
+            matrix_data: Dictionary with categories and strategy data
+        """
+        categories = matrix_data["categories"]
+        matrix = matrix_data["matrix"]
+
+        # Prepare data for grouped bar chart
+        category_indices = sorted(matrix.keys())
+        category_labels = [categories[i] for i in category_indices]
+
+        # Extract action probabilities
+        fold_probs = [matrix[i]["fold"] for i in category_indices]
+        check_call_probs = [matrix[i]["check_call"] for i in category_indices]
+        bet_pot_probs = [matrix[i]["bet_pot"] for i in category_indices]
+        all_in_probs = [matrix[i]["all_in"] for i in category_indices]
+        counts = [matrix[i]["count"] for i in category_indices]
+
+        # Set up bar positions
+        x = np.arange(len(category_labels))
+        width = 0.2  # Width of bars
+
+        # Create grouped bars
+        bars1 = self.matrix_ax.bar(x - 1.5*width, fold_probs, width,
+                                   label='Fold', color='#ff6b6b', alpha=0.8)
+        bars2 = self.matrix_ax.bar(x - 0.5*width, check_call_probs, width,
+                                   label='Check/Call', color='#4ecdc4', alpha=0.8)
+        bars3 = self.matrix_ax.bar(x + 0.5*width, bet_pot_probs, width,
+                                   label='Bet Pot', color='#95e1d3', alpha=0.8)
+        bars4 = self.matrix_ax.bar(x + 1.5*width, all_in_probs, width,
+                                   label='All-In', color='#f9ca24', alpha=0.8)
+
+        # Customize plot
+        self.matrix_ax.set_xlabel('Hand Rank Category', fontsize=12, fontweight='bold')
+        self.matrix_ax.set_ylabel('Action Probability', fontsize=12, fontweight='bold')
+        self.matrix_ax.set_title('River Hold\'em Strategy by Hand Strength',
+                                 fontsize=14, fontweight='bold', pad=20)
+        self.matrix_ax.set_xticks(x)
+        self.matrix_ax.set_xticklabels(category_labels, rotation=45, ha='right', fontsize=9)
+        self.matrix_ax.set_ylim(0, 1.0)
+        self.matrix_ax.legend(loc='upper left', fontsize=10)
+        self.matrix_ax.grid(True, alpha=0.3, axis='y')
+
+        # Add sample counts as text above bars
+        for i, (cat_idx, count) in enumerate(zip(category_indices, counts)):
+            self.matrix_ax.text(i, 1.02, f'n={count}',
+                               ha='center', va='bottom', fontsize=7, color='gray')
+
+        # Add guideline for optimal play (rough heuristic)
+        # Strong hands (7-9): should bet/raise more
+        # Medium hands (3-6): should check/call more
+        # Weak hands (0-2): should fold more
+        strong_start = None
+        medium_start = None
+        weak_end = None
+
+        for i, cat_idx in enumerate(category_indices):
+            if cat_idx >= 7 and strong_start is None:
+                strong_start = i
+            if cat_idx >= 3 and cat_idx < 7 and medium_start is None:
+                medium_start = i
+            if cat_idx < 3:
+                weak_end = i
+
+        # Highlight regions with background colors
+        if weak_end is not None:
+            self.matrix_ax.axvspan(-0.5, weak_end + 0.5, alpha=0.1, color='red',
+                                  label='Weak Hands')
+        if medium_start is not None:
+            medium_end = strong_start - 1 if strong_start else len(category_indices) - 1
+            self.matrix_ax.axvspan(medium_start - 0.5, medium_end + 0.5, alpha=0.1,
+                                  color='yellow')
+        if strong_start is not None:
+            self.matrix_ax.axvspan(strong_start - 0.5, len(category_indices) - 0.5,
+                                  alpha=0.1, color='green', label='Strong Hands')
 
     def _training_completed(self):
         """Handle training completion."""
