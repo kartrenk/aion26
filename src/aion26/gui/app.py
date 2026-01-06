@@ -265,6 +265,7 @@ class DeepCFRVisualizer:
             parent, textvariable=self.game_var, values=["kuhn", "leduc", "river_holdem"], state="readonly"
         )
         game_combo.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=5)
+        game_combo.bind("<<ComboboxSelected>>", self._on_game_changed)
         row += 1
 
         # Algorithm selection
@@ -292,21 +293,21 @@ class DeepCFRVisualizer:
 
         # Training hyperparameters
         ttk.Label(parent, text="Iterations:").grid(row=row, column=0, sticky=tk.W, pady=5)
-        self.iterations_var = tk.StringVar(value="2000")  # Demo-friendly: enough to fill buffer
+        self.iterations_var = tk.StringVar(value="5000")  # Default for Leduc
         ttk.Entry(parent, textvariable=self.iterations_var).grid(
             row=row, column=1, sticky=(tk.W, tk.E), pady=5
         )
         row += 1
 
         ttk.Label(parent, text="Batch Size:").grid(row=row, column=0, sticky=tk.W, pady=5)
-        self.batch_size_var = tk.StringVar(value="128")
+        self.batch_size_var = tk.StringVar(value="256")  # Default for Leduc
         ttk.Entry(parent, textvariable=self.batch_size_var).grid(
             row=row, column=1, sticky=(tk.W, tk.E), pady=5
         )
         row += 1
 
         ttk.Label(parent, text="Buffer Capacity:").grid(row=row, column=0, sticky=tk.W, pady=5)
-        self.buffer_capacity_var = tk.StringVar(value="1000")  # Demo-friendly: fills quickly
+        self.buffer_capacity_var = tk.StringVar(value="10000")  # Default for Leduc
         ttk.Entry(parent, textvariable=self.buffer_capacity_var).grid(
             row=row, column=1, sticky=(tk.W, tk.E), pady=5
         )
@@ -470,6 +471,27 @@ class DeepCFRVisualizer:
         self.status_label = ttk.Label(parent, textvariable=self.status_var, relief=tk.SUNKEN)
         self.status_label.grid(row=0, column=4, padx=20, sticky=(tk.W, tk.E))
         parent.columnconfigure(4, weight=1)
+
+    def _on_game_changed(self, event):
+        """Update recommended settings when game selection changes."""
+        game = self.game_var.get()
+
+        # Update buffer capacity and iterations based on game
+        if game == "river_holdem":
+            # River Hold'em needs large buffer due to 52-card state space
+            self.buffer_capacity_var.set("100000")
+            self.iterations_var.set("10000")
+            self.batch_size_var.set("1024")
+        elif game == "leduc":
+            # Leduc poker - medium complexity
+            self.buffer_capacity_var.set("10000")
+            self.iterations_var.set("5000")
+            self.batch_size_var.set("256")
+        else:  # kuhn
+            # Kuhn poker - simplest game
+            self.buffer_capacity_var.set("1000")
+            self.iterations_var.set("2000")
+            self.batch_size_var.set("128")
 
     def _get_config_from_ui(self) -> AionConfig:
         """Build AionConfig from UI inputs."""

@@ -234,10 +234,18 @@ class TrainingThread(threading.Thread):
                 self.metrics_queue.put(update)
 
             # Final update
-            logger.info("Training completed, computing final NashConv...")
+            logger.info("Training completed")
             final_strategy = self._get_average_strategy()
-            final_nash_conv = compute_nash_conv(self.trainer.initial_state, final_strategy)
-            logger.info(f"Final NashConv: {final_nash_conv:.6f}")
+
+            # Only compute final NashConv for small games (Kuhn, Leduc)
+            # For River Hold'em, use head-to-head evaluation instead
+            if self.config.game.name in ["kuhn", "leduc"]:
+                logger.info("Computing final NashConv...")
+                final_nash_conv = compute_nash_conv(self.trainer.initial_state, final_strategy)
+                logger.info(f"Final NashConv: {final_nash_conv:.6f}")
+            else:
+                logger.info(f"Skipping final NashConv for {self.config.game.name} (use head-to-head evaluation instead)")
+                final_nash_conv = None
             self.metrics_queue.put(
                 MetricsUpdate(
                     iteration=self.config.training.iterations,
