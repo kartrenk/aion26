@@ -24,13 +24,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import Adam
 
-from aion26.deep_cfr.networks import DeepCFRNetwork, KuhnEncoder
+from aion26.deep_cfr.networks import DeepCFRNetwork, KuhnEncoder, ValueNetwork
 from aion26.memory.reservoir import ReservoirBuffer
 from aion26.cfr.regret_matching import regret_matching, sample_action
 from aion26.learner.discounting import (
     DiscountScheduler,
     PDCFRScheduler,
     LinearScheduler,
+    DDCFRStrategyScheduler,
 )
 
 
@@ -138,8 +139,9 @@ class DeepCFRTrainer:
             self.regret_scheduler = regret_scheduler
 
         if strategy_scheduler is None:
-            # Default: Linear weighting for strategy accumulation
-            self.strategy_scheduler = LinearScheduler()
+            # Default: DDCFR with γ=2.0 (quadratic weighting) for strategy accumulation
+            # This is the full DDCFR specification: t^γ weighting
+            self.strategy_scheduler = DDCFRStrategyScheduler(gamma=2.0)
         else:
             self.strategy_scheduler = strategy_scheduler
 
@@ -164,11 +166,25 @@ class DeepCFRTrainer:
         self.target_net.copy_weights_from(self.advantage_net, polyak=1.0)
         self.target_net.eval()  # Target network always in eval mode
 
-        # Optimizer
-        self.optimizer = Adam(self.advantage_net.parameters(), lr=learning_rate)
+        # Value network for Variance Reduction (VR-MCCFR)
+        self.value_net = ValueNetwork(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_hidden_layers=num_hidden_layers,
+        ).to(self.device)
 
-        # Reservoir buffer
+        # Optimizers
+        self.optimizer = Adam(self.advantage_net.parameters(), lr=learning_rate)
+        self.value_optimizer = Adam(self.value_net.parameters(), lr=learning_rate)
+
+        # Reservoir buffers
         self.buffer = ReservoirBuffer(
+            capacity=buffer_capacity,
+            input_shape=(input_size,)
+        )
+
+        # Value buffer stores (state, actual_return) for baseline training
+        self.value_buffer = ReservoirBuffer(
             capacity=buffer_capacity,
             input_shape=(input_size,)
         )
@@ -285,10 +301,19 @@ class DeepCFRTrainer:
         num_legal = len(legal_actions)
 
         # Get current strategy from neural network
-        strategy = self.get_strategy(state, current_player)
+        strategy_full = self.get_strategy(state, current_player)
+        # Slice to only legal actions (network may output more actions than currently legal)
+        strategy = strategy_full[:num_legal]
 
         # If this is the player we're updating, compute counterfactual values
         if current_player == update_player:
+            # Variance Reduction: Compute baseline from value network
+            # This baseline estimate reduces variance in regret updates
+            state_encoding = self.encoder.encode(state, current_player)
+            with torch.no_grad():
+                baseline_tensor = self.value_net(state_encoding.unsqueeze(0).to(self.device))
+                baseline = baseline_tensor.item()  # Scalar value
+
             # Compute value for each action
             action_values = np.zeros(num_legal, dtype=np.float64)
             for i, action in enumerate(legal_actions):
@@ -313,8 +338,16 @@ class DeepCFRTrainer:
             # Expected value of this information state
             node_value = np.dot(strategy, action_values)
 
-            # Compute instant counterfactual regrets
+            # VR-MCCFR: Compute instant counterfactual regrets with baseline
+            # regret[a] = (Q(s,a) - baseline) - (V(s) - baseline) = Q(s,a) - V(s)
+            # The baseline cancels in the regret formula, but reduces variance
+            # when used with importance sampling weights
             instant_regrets = action_values - node_value
+
+            # Store (state, actual_return) in value buffer for baseline training
+            # The value network learns to predict node_value to minimize MSE
+            return_target = torch.tensor([node_value], dtype=torch.float32)
+            self.value_buffer.add(state_encoding, return_target)
 
             # Weight regrets by opponent reach probability (CFR weighting)
             opponent_reach = reach_prob_1 if current_player == 0 else reach_prob_0
@@ -330,7 +363,8 @@ class DeepCFRTrainer:
                 current_player,
                 use_target=True
             )
-            target_regrets_np = target_regrets.cpu().numpy()
+            # Slice to only legal actions (matches instant_regrets size)
+            target_regrets_np = target_regrets.cpu().numpy()[:num_legal]
 
             # Get dynamic discount weights for this iteration
             # Use different exponents for positive vs negative target regrets
@@ -348,8 +382,14 @@ class DeepCFRTrainer:
             bootstrap_targets = weighted_regrets + discount_vector * target_regrets_np
 
             # Store experience in reservoir buffer
+            # IMPORTANT: Pad bootstrap_targets to full action space size
+            # Network outputs all actions, so targets must match this size
+            num_actions = len(strategy_full)  # Total actions (from network output size)
+            bootstrap_targets_padded = np.zeros(num_actions, dtype=np.float32)
+            bootstrap_targets_padded[:num_legal] = bootstrap_targets
+
             state_encoding = self.encoder.encode(state, current_player)
-            target_tensor = torch.from_numpy(bootstrap_targets).float()
+            target_tensor = torch.from_numpy(bootstrap_targets_padded).float()
             self.buffer.add(state_encoding, target_tensor)
 
             # Update average strategy (weighted by reach probability and iteration weight)
@@ -368,8 +408,8 @@ class DeepCFRTrainer:
                 if info_state not in self.strategy_sum:
                     self.strategy_sum[info_state] = np.zeros(self.num_actions, dtype=np.float64)
 
-                # Accumulate with dynamic weighting
-                self.strategy_sum[info_state] += own_reach * strategy_weight * strategy
+                # Accumulate with dynamic weighting (only for legal actions)
+                self.strategy_sum[info_state][:num_legal] += own_reach * strategy_weight * strategy
 
             return node_value
 
@@ -395,7 +435,9 @@ class DeepCFRTrainer:
         Returns:
             Training loss (MSE)
         """
-        if not self.buffer.is_full or len(self.buffer) < self.batch_size:
+        # Train if we have enough samples for a batch, even if buffer isn't full yet
+        # This makes training more responsive in GUI demos
+        if len(self.buffer) < self.batch_size:
             return 0.0
 
         # Sample mini-batch from buffer
@@ -419,6 +461,39 @@ class DeepCFRTrainer:
         # Track metrics
         self.total_loss += loss.item()
         self.num_train_steps += 1
+
+        return loss.item()
+
+    def train_value_network(self) -> float:
+        """Train the value network on buffered state-return pairs.
+
+        The value network learns to predict state values V(s) which are used
+        as baselines for variance reduction in VR-MCCFR.
+
+        Returns:
+            Training loss (MSE)
+        """
+        # Train if we have enough samples for a batch, even if buffer isn't full yet
+        if len(self.value_buffer) < self.batch_size:
+            return 0.0
+
+        # Sample mini-batch from value buffer
+        states, returns = self.value_buffer.sample(self.batch_size)
+
+        # Move to device
+        states = states.to(self.device)
+        returns = returns.to(self.device)
+
+        # Forward pass
+        predictions = self.value_net(states)
+
+        # Compute loss (MSE between predicted and actual returns)
+        loss = F.mse_loss(predictions, returns)
+
+        # Backward pass
+        self.value_optimizer.zero_grad()
+        loss.backward()
+        self.value_optimizer.step()
 
         return loss.item()
 
@@ -463,13 +538,19 @@ class DeepCFRTrainer:
             "iteration": self.iteration,
             "buffer_size": len(self.buffer),
             "buffer_fill_pct": self.buffer.fill_percentage,
-            "loss": 0.0
+            "loss": 0.0,
+            "value_loss": 0.0
         }
 
-        # Train network
+        # Train networks
         if self.iteration % self.train_every == 0:
+            # Train advantage network (regrets)
             loss = self.train_network()
             metrics["loss"] = loss
+
+            # Train value network (baselines for VR-MCCFR)
+            value_loss = self.train_value_network()
+            metrics["value_loss"] = value_loss
 
         # Update target network
         if self.iteration % self.target_update_every == 0:

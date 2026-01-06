@@ -1,0 +1,23 @@
+name: kuhn_vanilla
+seed: 42
+device: cpu
+game:
+  name: kuhn
+training:
+  iterations: 500
+  batch_size: 64
+  buffer_capacity: 10000
+  eval_every: 100
+  log_every: 10
+model:
+  hidden_size: 64
+  num_hidden_layers: 3
+  learning_rate: 0.001
+  optimizer: adam
+  weight_decay: 0.0
+algorithm:
+  use_vr: false
+  scheduler_type: linear
+  alpha: 1.5
+  beta: 0.0
+  gamma: 1.0

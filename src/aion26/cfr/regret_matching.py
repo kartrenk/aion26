@@ -42,4 +42,12 @@ def sample_action(strategy: npt.NDArray[np.float64], rng: np.random.Generator) -
     Returns:
         Sampled action index
     """
-    return int(rng.choice(len(strategy), p=strategy))
+    # Normalize strategy to ensure it sums to exactly 1.0 (fixes floating point precision issues)
+    strategy_sum = strategy.sum()
+    if strategy_sum > 0:
+        normalized_strategy = strategy / strategy_sum
+    else:
+        # Fallback to uniform if all zeros
+        normalized_strategy = np.ones_like(strategy) / len(strategy)
+
+    return int(rng.choice(len(normalized_strategy), p=normalized_strategy))

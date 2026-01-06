@@ -9,6 +9,7 @@ Aion-26 implements **Deep Counterfactual Regret Minimization with Predictive Dis
 ## Quick Links
 
 - **Main Report**: [PHASE3_COMPLETION_REPORT.md](PHASE3_COMPLETION_REPORT.md) - Latest results
+- **GUI Visualizer**: [GUI_VISUALIZER.md](GUI_VISUALIZER.md) - Interactive training interface
 - **Performance**: [EXTERNAL_SAMPLING_MCCFR.md](EXTERNAL_SAMPLING_MCCFR.md) - 34× speedup
 - **Known Issues**: [EXPLOITABILITY_BUG_ANALYSIS.md](EXPLOITABILITY_BUG_ANALYSIS.md) - Minor measurement bug
 
@@ -30,6 +31,12 @@ Aion-26 implements **Deep Counterfactual Regret Minimization with Predictive Dis
 - **Achievement**: 95% improvement over vanilla (NashConv 0.0187 vs 0.3967)
 
 ## Technical Reports
+
+### GUI Visualizer (Phase 3+)
+- **File**: [GUI_VISUALIZER.md](GUI_VISUALIZER.md)
+- **Topic**: Interactive Tkinter-based training interface with real-time visualization
+- **Features**: Multi-scheduler support, live NashConv plots, file logging
+- **Status**: Production ready (critical fixes applied 2026-01-06)
 
 ### External Sampling MCCFR
 - **File**: [EXTERNAL_SAMPLING_MCCFR.md](EXTERNAL_SAMPLING_MCCFR.md)

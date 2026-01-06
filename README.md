@@ -6,9 +6,11 @@ A lean, agent-based framework for solving imperfect information games using Deep
 
 Aion-26 implements state-of-the-art game theory algorithms to find Nash equilibrium strategies in games like poker. The project follows a three-phase lean development approach:
 
-- **Phase 1** (Current): Vanilla CFR on Kuhn Poker - Validate algorithmic correctness
-- **Phase 2**: Deep CFR with neural networks - Scale to larger games
-- **Phase 3**: Full PDCFR+ with dynamic discounting and predictive updates
+- **Phase 1** ✅ COMPLETE: Vanilla CFR on Kuhn Poker - Validate algorithmic correctness
+- **Phase 2** ✅ COMPLETE: Deep CFR with neural networks - Scale to larger games
+- **Phase 3** ✅ COMPLETE: VR-DDCFR+ with variance reduction and dynamic discounting
+
+**Latest**: Now includes a **GUI visualizer** for real-time training monitoring!
 
 ## Installation
 
@@ -47,14 +49,16 @@ aion26/
 ├── src/aion26/
 │   ├── games/          # Game implementations (Kuhn, Leduc, RPS)
 │   ├── cfr/            # CFR algorithm engine
+│   ├── deep_cfr/       # Neural networks (Advantage, Value, Encoders)
 │   ├── memory/         # Experience replay buffers
-│   ├── networks/       # Neural networks (Phase 2+)
-│   ├── learner/        # Training loop and optimizers (Phase 2+)
+│   ├── learner/        # Training loop and optimizers
 │   ├── metrics/        # Exploitability and validation
-│   └── utils/          # Configuration and utilities
+│   ├── gui/            # GUI visualizer (Tkinter)
+│   ├── config.py       # YAML configuration system
+│   └── utils/          # Utilities
 ├── tests/              # Unit and integration tests
-├── scripts/            # Training scripts
-└── configs/            # Experiment configurations
+├── scripts/            # Training scripts and GUI launcher
+└── configs/            # Experiment configurations (YAML)
 ```
 
 ## Phase 1: Kuhn Poker ✅ COMPLETE
@@ -82,6 +86,46 @@ open docs/phase1_report.md           # Detailed markdown report
 **Phase 1 Reports**:
 - 📊 [Interactive HTML Dashboard](file://phase1_report.html) - Visual training metrics
 - 📄 [Detailed Markdown Report](docs/phase1_report.md) - Complete analysis & next steps
+
+## Phase 2 & 3: Deep PDCFR+ ✅ COMPLETE
+
+Successfully implemented Deep CFR with neural networks, variance reduction, and dynamic discounting:
+
+**Achievements**:
+- ✅ **34.5× speedup** with External Sampling MCCFR
+- ✅ **42.6% NashConv improvement** with VR-DDCFR+ (0.7848 → 0.4502)
+- ✅ Variance Reduction with Value Network baseline
+- ✅ DDCFR strategy weighting (t^γ)
+- ✅ Bootstrapped target networks with Polyak averaging
+- ✅ Reservoir sampling buffers
+
+**Reports**:
+- 📄 [VR-DDCFR Completion Report](VR_DDCFR_COMPLETION.md) - Full implementation details
+
+## GUI Visualizer 🎨 NEW
+
+Launch the interactive GUI for real-time training visualization:
+
+```bash
+# Launch GUI
+python scripts/launch_gui.py
+
+# Or with uv
+PYTHONPATH=src uv run python scripts/launch_gui.py
+```
+
+**Features**:
+- 🎛️ **Configuration Panel**: Game selection, algorithm tuning, hyperparameters
+- 📊 **Real-time Plotting**: Live NashConv convergence visualization
+- 🔍 **Strategy Inspector**: View strategy evolution for all information sets
+- 💾 **Config Management**: Save/load experiments as YAML files
+- ⚡ **Non-blocking Training**: Background threads keep UI responsive
+
+**Sample Configs**:
+- `configs/leduc_vr_ddcfr.yaml` - Leduc Poker with VR-DDCFR+ (SOTA)
+- `configs/kuhn_vanilla.yaml` - Kuhn Poker baseline
+
+**Note**: Requires Python with tkinter support. See [GUI_IMPLEMENTATION_REPORT.md](GUI_IMPLEMENTATION_REPORT.md) for details.
 
 ## References
 

@@ -212,6 +212,90 @@ class PDCFRScheduler(DiscountScheduler):
         return sum(self.get_weight(t, "positive") for t in range(1, iteration + 1))
 
 
+class DDCFRStrategyScheduler(DiscountScheduler):
+    """DDCFR strategy weighting: Power-law discounting for strategy accumulation.
+
+    w_t = t^γ
+
+    This is the strategy weighting component of Dynamic Discounted CFR (DDCFR).
+    Unlike PDCFRScheduler which uses t^α / (t^α + 1) for regrets, this
+    scheduler uses a simple power law for weighting the strategy accumulation.
+
+    Key insight: Recent iterations have better strategies, so weight them more.
+    As γ increases, recent iterations dominate the average strategy.
+
+    Typical values:
+    - γ = 2.0: Quadratic weighting (SOTA for many games)
+    - γ = 1.0: Linear weighting (same as LinearScheduler)
+    - γ = 0.0: Uniform weighting (same as UniformScheduler)
+
+    Reference:
+    - Brown & Sandholm (2019): "Solving Imperfect-Information Games via
+      Discounted Regret Minimization"
+    - Framework.md Section 2.2: "DDCFR generalizes strategy weighting with γ"
+
+    Args:
+        gamma: Power-law exponent for strategy weighting (default: 2.0)
+    """
+
+    def __init__(self, gamma: float = 2.0):
+        """Initialize DDCFR strategy scheduler.
+
+        Args:
+            gamma: Power-law exponent (typically 0.0-5.0)
+                  Higher values = more weight on recent iterations
+        """
+        if gamma < 0:
+            raise ValueError(f"Gamma must be >= 0, got {gamma}")
+        self.gamma = gamma
+
+    def get_weight(self, iteration: int, regret_sign: Literal["positive", "negative"] = "positive") -> float:
+        """Get DDCFR strategy weight for iteration.
+
+        Args:
+            iteration: Iteration number (1-indexed)
+            regret_sign: Ignored (strategy weighting doesn't depend on regret sign)
+
+        Returns:
+            w_t = t^γ
+        """
+        if iteration < 1:
+            raise ValueError(f"Iteration must be >= 1, got {iteration}")
+
+        # Special cases
+        if self.gamma == 0.0:
+            return 1.0  # Uniform weighting
+        if self.gamma == 1.0:
+            return float(iteration)  # Linear weighting
+
+        # General case: t^γ
+        return np.power(float(iteration), self.gamma)
+
+    def get_accum_weight(self, iteration: int) -> float:
+        """Get accumulated weight from iteration 1 to iteration.
+
+        For γ != 1, there's no simple closed form, so we compute the sum.
+        Could be optimized with caching if needed.
+
+        Args:
+            iteration: Iteration number (1-indexed)
+
+        Returns:
+            sum_{t=1}^{iteration} t^γ
+        """
+        if iteration < 1:
+            raise ValueError(f"Iteration must be >= 1, got {iteration}")
+
+        # Special cases with closed forms
+        if self.gamma == 0.0:
+            return float(iteration)  # sum of 1s
+        if self.gamma == 1.0:
+            return iteration * (iteration + 1) / 2.0  # sum of 1..t
+
+        # General case: compute sum
+        return sum(np.power(float(t), self.gamma) for t in range(1, iteration + 1))
+
+
 class GeometricScheduler(DiscountScheduler):
     """Geometric discounting: exponential decay of old iterations.
 
@@ -264,7 +348,7 @@ class GeometricScheduler(DiscountScheduler):
 
 
 def create_scheduler(
-    scheduler_type: Literal["uniform", "linear", "pdcfr", "geometric"] = "linear",
+    scheduler_type: Literal["uniform", "linear", "pdcfr", "ddcfr", "geometric"] = "linear",
     **kwargs
 ) -> DiscountScheduler:
     """Factory function to create discounting schedulers.
@@ -279,6 +363,7 @@ def create_scheduler(
     Examples:
         >>> scheduler = create_scheduler("linear")
         >>> scheduler = create_scheduler("pdcfr", alpha=2.0, beta=0.5)
+        >>> scheduler = create_scheduler("ddcfr", gamma=2.0)
         >>> scheduler = create_scheduler("geometric", gamma=0.99)
     """
     if scheduler_type == "uniform":
@@ -287,6 +372,8 @@ def create_scheduler(
         return LinearScheduler()
     elif scheduler_type == "pdcfr":
         return PDCFRScheduler(**kwargs)
+    elif scheduler_type == "ddcfr":
+        return DDCFRStrategyScheduler(**kwargs)
     elif scheduler_type == "geometric":
         return GeometricScheduler(**kwargs)
     else:

@@ -4,6 +4,7 @@ This module provides:
 - CardEmbedding: One-hot encoding for card ranks
 - KuhnEncoder: State encoder for Kuhn Poker
 - DeepCFRNetwork: MLP for regret/strategy approximation
+- ValueNetwork: MLP for state value estimation (Variance Reduction baseline)
 """
 
 import torch
@@ -83,6 +84,7 @@ class KuhnEncoder:
                     In Kuhn Poker, max pot is 5 (2 ante + 1 + 1 + 1)
         """
         self.max_pot = max_pot
+        self.input_size = 10  # Card (3) + History (6) + Pot (1)
 
     def encode(self, state: KuhnPoker, player: Optional[int] = None) -> torch.FloatTensor:
         """Encode a Kuhn Poker state into a feature tensor.
@@ -317,6 +319,7 @@ class LeducEncoder:
                     In Leduc, max pot is ~20 (2 antes + multiple bets)
         """
         self.max_pot = max_pot
+        self.input_size = 26  # Private card (6) + Public card (6) + Round (1) + History R1 (6) + History R2 (6) + Pot (1)
 
     def _encode_card(self, card: Optional[Card]) -> np.ndarray:
         """Encode a Leduc card (rank + suit) as one-hot vector.
@@ -441,3 +444,92 @@ class LeducEncoder:
             26 (6 private + 6 public + 1 round + 12 history + 1 pot)
         """
         return 26
+
+
+class ValueNetwork(nn.Module):
+    """MLP for estimating state values (Variance Reduction baseline).
+
+    This network is used in VR-MCCFR to provide a baseline for variance reduction.
+    It predicts the expected return from a given information state, which is then
+    subtracted from action values to reduce the variance of regret estimates.
+
+    Mathematical Foundation:
+        Without baseline: regret[a] = utility[a] * weight
+        With baseline:    regret[a] = (utility[a] - V(s)) * weight
+
+        Both are unbiased estimators of the true regret, but the baseline version
+        has lower variance, leading to faster and more stable convergence.
+
+    Architecture:
+    - Same as DeepCFRNetwork but with output_size=1
+    - Input layer: feature_size (e.g., 10 for Kuhn, 26 for Leduc)
+    - Hidden layers: Configurable (default: 3 × 64 units)
+    - Output layer: 1 scalar value (no activation)
+
+    Example:
+        encoder = LeducEncoder()
+        value_net = ValueNetwork(input_size=26, hidden_size=128, num_hidden_layers=3)
+
+        state = LeducPoker(...)
+        features = encoder.encode(state, player=0)
+        baseline = value_net(features.unsqueeze(0))  # Shape: (1, 1)
+    """
+
+    def __init__(
+        self,
+        input_size: int,
+        hidden_size: int = 64,
+        num_hidden_layers: int = 3,
+    ):
+        """Initialize the value network.
+
+        Args:
+            input_size: Dimensionality of input features
+            hidden_size: Number of units in each hidden layer (default: 64)
+            num_hidden_layers: Number of hidden layers (default: 3)
+        """
+        super().__init__()
+
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_hidden_layers = num_hidden_layers
+
+        # Build network layers (same as DeepCFRNetwork but output_size=1)
+        layers = []
+
+        # Input layer
+        layers.append(nn.Linear(input_size, hidden_size))
+        layers.append(nn.ReLU())
+
+        # Hidden layers
+        for _ in range(num_hidden_layers - 1):
+            layers.append(nn.Linear(hidden_size, hidden_size))
+            layers.append(nn.ReLU())
+
+        # Output layer: single scalar value (expected return)
+        # No special initialization needed - standard variance is fine
+        output_layer = nn.Linear(hidden_size, 1)
+        layers.append(output_layer)
+
+        self.network = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass through the network.
+
+        Args:
+            x: Input tensor of shape (batch_size, input_size)
+
+        Returns:
+            Output tensor of shape (batch_size, 1)
+            representing predicted state value (expected return)
+        """
+        return self.network(x)
+
+    def __repr__(self) -> str:
+        """String representation of the network."""
+        return (
+            f"ValueNetwork("
+            f"input={self.input_size}, "
+            f"hidden={self.hidden_size}x{self.num_hidden_layers}, "
+            f"output=1)"
+        )
