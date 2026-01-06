@@ -15,17 +15,19 @@ Expected Performance:
 - vs CallingStation: +1000-2000 mbb/h (exploit passivity)
 - vs HonestBot: +500-1500 mbb/h (exploit honesty, no bluffs)
 
-Hyperparameters:
-- Buffer: 100,000 samples (Hold'em needs more data)
-- Batch: 1,024 (larger batches for stability)
-- Iterations: 10,000 (endgame solving requires fewer iterations)
+Hyperparameters (OPTIMIZED - Post-Divergence Fix):
+- Buffer: 30,000 samples (fills at ~10k iters, ensures 100% utilization)
+- Batch: 1,024 (3.4% coverage - critical for convergence)
+- Iterations: 10,000 (endgame solving)
 - Hidden: 128 units (larger network for 31-dim input)
 - Layers: 3 (standard depth)
+- Gradient clipping: norm=1.0 (prevents divergence)
 """
 
 import sys
 from pathlib import Path
 import time
+import argparse
 
 # Add src to path
 project_root = Path(__file__).parent.parent
@@ -45,9 +47,16 @@ from aion26.metrics.evaluator import HeadToHeadEvaluator
 # Configuration
 # ============================================================================
 
-ITERATIONS = 10000
-BUFFER_CAPACITY = 100000  # Large buffer for Hold'em
-BATCH_SIZE = 1024
+# Parse command line arguments
+parser = argparse.ArgumentParser(description='Train Deep CFR on River Hold\'em')
+parser.add_argument('--iterations', type=int, default=10000, help='Number of training iterations')
+parser.add_argument('--buffer', type=int, default=30000, help='Buffer capacity')
+parser.add_argument('--batch', type=int, default=1024, help='Batch size')
+args = parser.parse_args()
+
+ITERATIONS = args.iterations
+BUFFER_CAPACITY = args.buffer  # Optimized: 30k fills at ~10k iters
+BATCH_SIZE = args.batch  # Critical: Must be 1024 for convergence
 HIDDEN_SIZE = 128
 NUM_LAYERS = 3
 LEARNING_RATE = 0.001
@@ -97,13 +106,12 @@ def main():
         learning_rate=LEARNING_RATE,
         regret_scheduler=PDCFRScheduler(alpha=2.0, beta=0.5),
         strategy_scheduler=LinearScheduler(),
-        use_vr=True,  # Variance reduction
+        # Note: VR (variance reduction) not implemented yet in this trainer
     )
 
     print(f"Trainer initialized:")
     print(f"  Regret scheduler: PDCFR (α=2.0, β=0.5)")
     print(f"  Strategy scheduler: Linear")
-    print(f"  Variance reduction: Enabled")
     print()
 
     # Create baseline bots
