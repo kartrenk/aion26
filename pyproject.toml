@@ -1,0 +1,43 @@
+[project]
+name = "aion26"
+version = "0.1.0"
+description = "Deep PDCFR+ framework for imperfect information games"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.4.0",
+    "open-spiel>=1.6.11",
+    "scipy>=1.16.3",
+]
+
+[project.optional-dependencies]
+deep = [
+    "torch>=2.9.1",
+]
+metrics = [
+    "matplotlib>=3.10.8",
+    "wandb>=0.23.1",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.10",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aion26"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
