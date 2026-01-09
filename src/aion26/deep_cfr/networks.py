@@ -545,48 +545,288 @@ class ValueNetwork(nn.Module):
         )
 
 
+class ResidualBlock(nn.Module):
+    """Pre-activation residual block with LayerNorm.
+
+    Structure: LayerNorm → ReLU → Linear → LayerNorm → ReLU → Linear + skip
+
+    Pre-activation design (He et al., 2016) improves gradient flow
+    and allows training deeper networks.
+    """
+
+    def __init__(self, hidden_dim: int):
+        super().__init__()
+        self.norm1 = nn.LayerNorm(hidden_dim)
+        self.linear1 = nn.Linear(hidden_dim, hidden_dim)
+        self.norm2 = nn.LayerNorm(hidden_dim)
+        self.linear2 = nn.Linear(hidden_dim, hidden_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass with residual connection."""
+        residual = x
+        x = self.norm1(x)
+        x = torch.relu(x)
+        x = self.linear1(x)
+        x = self.norm2(x)
+        x = torch.relu(x)
+        x = self.linear2(x)
+        return x + residual
+
+
+class ResNetDeepCFR(nn.Module):
+    """ResNet-based Deep CFR network with Card Embeddings and VR-PDCFR+ support.
+
+    Phase 7 Architecture (500k+ params):
+    - Card Embeddings: nn.Embedding(52, 64) for learned card representations
+    - Hole Cards: 2 × 64 = 128 dims (concatenated)
+    - Board Cards: 5 × 64 → sum pooling → 64 dims (permutation invariant)
+    - Context Features: 10 dims (pot odds, stacks, bets)
+    - Trunk: 4 residual blocks with LayerNorm + ReLU
+    - Dual Heads: Advantage (4 actions) + Value (1 scalar)
+
+    Why this architecture?
+    1. Learned Embeddings: The network learns card semantics (e.g., Ace is high,
+       flush draws share suit embeddings). More expressive than one-hot.
+
+    2. Permutation Invariance: Summing board embeddings ensures {A♠, K♦, Q♥, J♣, T♠}
+       encodes the same regardless of card order. Critical for board texture.
+
+    3. Residual Blocks: Deep networks with skip connections learn hierarchical
+       poker concepts (blockers, equity, fold equity, pot odds interactions).
+
+    4. Dual Heads for VR-PDCFR+:
+       - Advantage head: Predicts cumulative regrets for each action
+       - Value head: Predicts expected value V(s) as variance reduction baseline
+       - Loss: || Adv_pred - (Regret_raw - V_baseline) ||²
+
+    Mathematical Foundation (VR-PDCFR+):
+        Standard Deep CFR: target = regret_raw
+        VR-Deep CFR:       target = regret_raw - V(s)
+
+        The baseline V(s) is trained to minimize the variance of regret estimates.
+        Since E[regret] ≈ 0 at equilibrium, centering around V(s) gives lower
+        variance targets, enabling faster convergence with fewer samples.
+
+    Example:
+        net = ResNetDeepCFR(num_actions=4, card_dim=64, hidden_dim=256, num_blocks=4)
+        # Input: batch of card indices and context features
+        cards = torch.randint(0, 52, (batch_size, 7))  # 2 hole + 5 board
+        context = torch.randn(batch_size, 10)
+        advantage, value = net(cards, context)
+        # advantage: (batch_size, 4), value: (batch_size, 1)
+    """
+
+    def __init__(
+        self,
+        num_actions: int = 4,
+        card_dim: int = 64,
+        hidden_dim: int = 256,
+        num_blocks: int = 4,
+        context_dim: int = 10,
+    ):
+        """Initialize the ResNet Deep CFR network.
+
+        Args:
+            num_actions: Number of actions (default: 4 for fold/call/raise_half/raise_pot)
+            card_dim: Card embedding dimension (default: 64)
+            hidden_dim: Hidden dimension for residual blocks (default: 256)
+            num_blocks: Number of residual blocks (default: 4)
+            context_dim: Dimension of context features (default: 10)
+        """
+        super().__init__()
+
+        self.num_actions = num_actions
+        self.card_dim = card_dim
+        self.hidden_dim = hidden_dim
+        self.num_blocks = num_blocks
+        self.context_dim = context_dim
+
+        # Card embeddings: 52 cards → card_dim dimensions
+        self.card_embedding = nn.Embedding(52, card_dim)
+
+        # Input projection: hole cards (2×64) + board sum (64) + context (10)
+        # Total: 128 + 64 + 10 = 202 → hidden_dim
+        input_dim = card_dim * 2 + card_dim + context_dim  # 202
+        self.input_proj = nn.Linear(input_dim, hidden_dim)
+
+        # Residual trunk: 4 blocks
+        self.blocks = nn.ModuleList([
+            ResidualBlock(hidden_dim) for _ in range(num_blocks)
+        ])
+
+        # Output normalization (pre-head)
+        self.output_norm = nn.LayerNorm(hidden_dim)
+
+        # Dual heads for VR-PDCFR+
+        self.advantage_head = nn.Linear(hidden_dim, num_actions)
+        self.value_head = nn.Linear(hidden_dim, 1)
+
+        # Initialize advantage head with near-zero weights for uniform exploration
+        nn.init.normal_(self.advantage_head.weight, mean=0.0, std=0.001)
+        nn.init.zeros_(self.advantage_head.bias)
+
+        # Value head uses standard initialization
+        nn.init.xavier_uniform_(self.value_head.weight)
+        nn.init.zeros_(self.value_head.bias)
+
+    def forward(
+        self,
+        cards: torch.Tensor,
+        context: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass through the network.
+
+        Args:
+            cards: Card indices tensor of shape (batch_size, 7)
+                   First 2 are hole cards, last 5 are board cards (0-51)
+            context: Context features of shape (batch_size, context_dim)
+                     Contains pot odds, stacks, bets, etc.
+
+        Returns:
+            Tuple of (advantage, value):
+            - advantage: Shape (batch_size, num_actions) - cumulative regret estimates
+            - value: Shape (batch_size, 1) - state value baseline V(s)
+        """
+        batch_size = cards.shape[0]
+
+        # Embed cards: (batch, 7, card_dim)
+        card_embeds = self.card_embedding(cards)
+
+        # Hole cards: concatenate first 2 embeddings → (batch, 2 * card_dim)
+        hole_embeds = card_embeds[:, :2, :].reshape(batch_size, -1)
+
+        # Board cards: sum pool last 5 embeddings → (batch, card_dim)
+        # Permutation invariant: order of board cards doesn't matter
+        board_embeds = card_embeds[:, 2:, :].sum(dim=1)
+
+        # Concatenate all inputs: (batch, 2*card_dim + card_dim + context_dim)
+        x = torch.cat([hole_embeds, board_embeds, context], dim=1)
+
+        # Project to hidden dimension
+        x = self.input_proj(x)
+        x = torch.relu(x)
+
+        # Residual trunk
+        for block in self.blocks:
+            x = block(x)
+
+        # Output normalization
+        x = self.output_norm(x)
+        x = torch.relu(x)
+
+        # Dual heads
+        advantage = self.advantage_head(x)
+        value = self.value_head(x)
+
+        return advantage, value
+
+    def forward_from_flat(self, flat_state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass from flattened 136-dim state vector (for compatibility).
+
+        This method allows using the ResNet with the existing 136-dim encoding
+        from HoldemEncoder, extracting card indices and context features.
+
+        Args:
+            flat_state: Shape (batch_size, 136) - the standard HoldemEncoder output
+                       Layout: [10 rank + 34 hole + 85 board + 7 context]
+
+        Returns:
+            Tuple of (advantage, value) as in forward()
+
+        Note: This is less efficient than using raw card indices with forward().
+              Use forward() directly when possible.
+        """
+        batch_size = flat_state.shape[0]
+
+        # Extract card indices from one-hot encoding
+        # Hole cards: dims 10-43 (2 cards × 17 bits each)
+        # Board cards: dims 44-128 (5 cards × 17 bits each)
+        hole_start = 10
+        board_start = 44
+
+        cards = torch.zeros(batch_size, 7, dtype=torch.long, device=flat_state.device)
+
+        # Decode hole cards (2 cards)
+        for i in range(2):
+            offset = hole_start + i * 17
+            rank_onehot = flat_state[:, offset:offset+13]
+            suit_onehot = flat_state[:, offset+13:offset+17]
+            rank = rank_onehot.argmax(dim=1)  # 0-12
+            suit = suit_onehot.argmax(dim=1)  # 0-3
+            cards[:, i] = suit * 13 + rank  # Convert to 0-51 format
+
+        # Decode board cards (5 cards)
+        for i in range(5):
+            offset = board_start + i * 17
+            rank_onehot = flat_state[:, offset:offset+13]
+            suit_onehot = flat_state[:, offset+13:offset+17]
+            rank = rank_onehot.argmax(dim=1)
+            suit = suit_onehot.argmax(dim=1)
+            cards[:, 2+i] = suit * 13 + rank
+
+        # Extract context features (last 7 dims) and pad to context_dim
+        context_raw = flat_state[:, -7:]
+        if self.context_dim > 7:
+            # Pad with zeros if context_dim > 7
+            context = torch.zeros(batch_size, self.context_dim, device=flat_state.device)
+            context[:, :7] = context_raw
+        else:
+            context = context_raw[:, :self.context_dim]
+
+        return self.forward(cards, context)
+
+    def count_parameters(self) -> int:
+        """Count total trainable parameters."""
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
+    def __repr__(self) -> str:
+        """String representation with parameter count."""
+        params = self.count_parameters()
+        return (
+            f"ResNetDeepCFR("
+            f"actions={self.num_actions}, "
+            f"card_dim={self.card_dim}, "
+            f"hidden={self.hidden_dim}, "
+            f"blocks={self.num_blocks}, "
+            f"params={params:,})"
+        )
+
+
 class HoldemEncoder:
     """Encoder that converts a Texas Hold'em River state into a feature tensor.
 
-    This encoder is critical for the endgame solving strategy. It extracts features
-    that capture both the absolute hand strength and relative board texture.
+    FIXED: Full one-hot encoding for sharp representation (no normalized floats).
 
     Features extracted:
-    1. Hand Rank (one-hot, 10 dims): Rank category from treys evaluator
-       - 0: High Card
-       - 1: One Pair
-       - 2: Two Pair
-       - 3: Three of a Kind
-       - 4: Straight
-       - 5: Flush
-       - 6: Full House
-       - 7: Four of a Kind
-       - 8: Straight Flush
-       - 9: Royal Flush
+    1. Hand Rank Category (one-hot, 10 dims): Helper feature from treys evaluator
+       - 0: High Card, 1: One Pair, 2: Two Pair, 3: Three of a Kind
+       - 4: Straight, 5: Flush, 6: Full House, 7: Four of a Kind
+       - 8: Straight Flush, 9: Royal Flush
 
-    2. Hole Cards (4 dims): Normalized rank and suit for 2 hole cards
-       - Rank: 0-12 normalized to [0, 1]
-       - Suit: 0-3 normalized to [0, 1]
+    2. Hole Cards (34 dims): Full one-hot encoding for 2 hole cards
+       - Each card: 13 rank bits (Deuce→Ace) + 4 suit bits (♠♥♦♣)
+       - 2 cards × 17 bits = 34 binary features
 
-    3. Board Cards (10 dims): Normalized rank and suit for 5 board cards
-       - Same encoding as hole cards
+    3. Board Cards (85 dims): Full one-hot encoding for 5 board cards
+       - Each card: 13 rank bits + 4 suit bits = 17 bits
+       - 5 cards × 17 bits = 85 binary features
 
     4. Betting Context (7 dims):
-       - Pot size (normalized)
-       - Player 0 stack (normalized)
-       - Player 1 stack (normalized)
-       - Current bet (normalized)
-       - Player 0 invested (normalized)
-       - Player 1 invested (normalized)
+       - Pot size (normalized), Player 0/1 stacks (normalized)
+       - Current bet (normalized), Player 0/1 invested (normalized)
        - Pot odds (call_amount / (pot + call_amount))
 
-    Total: 10 + 4 + 10 + 7 = 31 dimensions
+    Total: 10 + 34 + 85 + 7 = 136 dimensions
+
+    Why one-hot? Sharp binary features allow the network to learn discrete
+    card identities (e.g., "if Ace present, then bet"). Normalized floats
+    (0.917 vs 1.0) are inefficient for learning poker discontinuities.
 
     Example:
         state = TexasHoldemRiver(...)
         encoder = HoldemEncoder()
         features = encoder.encode(state)
-        # features will be a tensor of shape (31,)
+        # features will be a tensor of shape (136,)
     """
 
     def __init__(self, max_pot: float = 500.0, max_stack: float = 200.0):
@@ -601,73 +841,97 @@ class HoldemEncoder:
 
         self.max_pot = max_pot
         self.max_stack = max_stack
-        self.input_size = 31  # Hand rank (10) + Hole cards (4) + Board (10) + Context (7)
+        self.input_size = 136  # Hand rank (10) + Hole cards (34) + Board (85) + Context (7)
         self.evaluator = Evaluator()
 
+        # Try to import Rust evaluator for faster evaluation
+        try:
+            import aion26_rust
+            self.rust_evaluator = aion26_rust
+        except ImportError:
+            self.rust_evaluator = None
+
     def _get_hand_rank_category(self, hand: list[int], board: list[int]) -> int:
-        """Get hand rank category (0-9) using treys evaluator.
+        """Get hand rank category (0-9) using evaluator.
 
         Args:
-            hand: 2 hole cards (treys int representation)
-            board: 5 board cards (treys int representation)
+            hand: 2 hole cards (treys or Rust 0-51 format)
+            board: 5 board cards (treys or Rust 0-51 format)
 
         Returns:
             Integer 0-9 representing hand rank category
-            Lower rank value = better hand in treys (we invert this)
         """
-        # Evaluate hand (lower is better in treys)
-        rank = self.evaluator.evaluate(board, hand)
+        # Detect card format: Rust cards are 0-51, treys cards are large bit flags
+        is_rust_format = all(0 <= c <= 51 for c in hand + board)
 
-        # Convert to category (0-9)
-        # Treys rank ranges:
-        # Royal Flush: 1
-        # Straight Flush: 2-10
-        # Four of a Kind: 11-166
-        # Full House: 167-322
-        # Flush: 323-1599
-        # Straight: 1600-1609
-        # Three of a Kind: 1610-2467
-        # Two Pair: 2468-3325
-        # One Pair: 3326-6185
-        # High Card: 6186-7462
-
-        if rank == 1:
-            return 9  # Royal Flush
-        elif rank <= 10:
-            return 8  # Straight Flush
-        elif rank <= 166:
-            return 7  # Four of a Kind
-        elif rank <= 322:
-            return 6  # Full House
-        elif rank <= 1599:
-            return 5  # Flush
-        elif rank <= 1609:
-            return 4  # Straight
-        elif rank <= 2467:
-            return 3  # Three of a Kind
-        elif rank <= 3325:
-            return 2  # Two Pair
-        elif rank <= 6185:
-            return 1  # One Pair
+        if is_rust_format and self.rust_evaluator is not None:
+            # Use Rust evaluator (expects 7 cards in 0-51 format)
+            seven_cards = hand + board
+            rank = self.rust_evaluator.evaluate_7_cards(seven_cards)
+            category = self.rust_evaluator.get_category(rank)
+            return category
         else:
-            return 0  # High Card
+            # Use treys evaluator (expects separate hand and board)
+            rank = self.evaluator.evaluate(board, hand)
+
+            # Convert to category (0-9)
+            # Treys rank ranges: 1-7462 (lower is better)
+            if rank == 1:
+                return 9  # Royal Flush
+            elif rank <= 10:
+                return 8  # Straight Flush
+            elif rank <= 166:
+                return 7  # Four of a Kind
+            elif rank <= 322:
+                return 6  # Full House
+            elif rank <= 1599:
+                return 5  # Flush
+            elif rank <= 1609:
+                return 4  # Straight
+            elif rank <= 2467:
+                return 3  # Three of a Kind
+            elif rank <= 3325:
+                return 2  # Two Pair
+            elif rank <= 6185:
+                return 1  # One Pair
+            else:
+                return 0  # High Card
 
     def _encode_card(self, card: int) -> np.ndarray:
-        """Encode a single card (treys format) into rank and suit features.
+        """Encode a single card as one-hot rank + suit.
 
         Args:
-            card: Card in treys int representation
+            card: Card in treys or Rust 0-51 format
 
         Returns:
-            Array of shape (2,) with [normalized_rank, normalized_suit]
-        """
-        rank = TreysCard.get_rank_int(card)  # 0-12 (Deuce to Ace)
-        suit = TreysCard.get_suit_int(card)  # 0-3
+            Array of shape (17,) with binary features:
+            - First 13 bits: rank one-hot (Deuce=0, ..., Ace=12)
+            - Last 4 bits: suit one-hot (Spades=0, Hearts=1, Diamonds=2, Clubs=3)
 
-        return np.array([
-            rank / 12.0,  # Normalize rank to [0, 1]
-            suit / 3.0    # Normalize suit to [0, 1]
-        ], dtype=np.float32)
+        Example:
+            Ace of Spades: [0,0,0,0,0,0,0,0,0,0,0,0,1, 1,0,0,0]
+            King of Hearts: [0,0,0,0,0,0,0,0,0,0,0,1,0, 0,1,0,0]
+        """
+        # Detect card format
+        if 0 <= card <= 51:
+            # Rust format: 0-51 encoding
+            rank = card % 13  # 0-12 (Deuce to Ace)
+            suit = card // 13  # 0-3
+        else:
+            # Treys format: bit flags
+            rank = TreysCard.get_rank_int(card)  # 0-12 (Deuce to Ace)
+            suit_bits = TreysCard.get_suit_int(card)  # 1, 2, 4, 8 (bit flags)
+            # Convert bit flag to index: 1→0, 2→1, 4→2, 8→3
+            suit = suit_bits.bit_length() - 1
+
+        # Create one-hot vectors
+        rank_one_hot = np.zeros(13, dtype=np.float32)
+        rank_one_hot[rank] = 1.0
+
+        suit_one_hot = np.zeros(4, dtype=np.float32)
+        suit_one_hot[suit] = 1.0
+
+        return np.concatenate([rank_one_hot, suit_one_hot])
 
     def encode(self, state: TexasHoldemRiver, player: Optional[int] = None) -> torch.FloatTensor:
         """Encode a Texas Hold'em River state into a feature tensor.
@@ -678,10 +942,10 @@ class HoldemEncoder:
                    If None, uses state.current_player()
 
         Returns:
-            Feature tensor of shape (31,) containing:
+            Feature tensor of shape (136,) containing:
             - Hand rank category one-hot (10 dims)
-            - Hole cards features (4 dims)
-            - Board cards features (10 dims)
+            - Hole cards one-hot (34 dims: 2 cards × 17 bits each)
+            - Board cards one-hot (85 dims: 5 cards × 17 bits each)
             - Betting context (7 dims)
 
         Raises:
@@ -704,15 +968,15 @@ class HoldemEncoder:
         rank_features = np.zeros(10, dtype=np.float32)
         rank_features[rank_category] = 1.0
 
-        # 2. Hole cards features (4 dims: 2 cards × 2 features each)
+        # 2. Hole cards features (34 dims: 2 cards × 17 bits each)
         hole_features = np.concatenate([
-            self._encode_card(hand[0]),
-            self._encode_card(hand[1])
+            self._encode_card(hand[0]),  # 17 dims
+            self._encode_card(hand[1])   # 17 dims
         ])
 
-        # 3. Board cards features (10 dims: 5 cards × 2 features each)
+        # 3. Board cards features (85 dims: 5 cards × 17 bits each)
         board_features = np.concatenate([
-            self._encode_card(board[i]) for i in range(5)
+            self._encode_card(board[i]) for i in range(5)  # 5 × 17 dims
         ])
 
         # 4. Betting context (7 dims)
@@ -737,10 +1001,10 @@ class HoldemEncoder:
         # Concatenate all features
         all_features = np.concatenate([
             rank_features,    # 10 dims
-            hole_features,    # 4 dims
-            board_features,   # 10 dims
+            hole_features,    # 34 dims
+            board_features,   # 85 dims
             context_features  # 7 dims
-        ])  # Total: 31 dims
+        ])  # Total: 136 dims
 
         return torch.from_numpy(all_features)
 
@@ -748,6 +1012,6 @@ class HoldemEncoder:
         """Get the dimensionality of the encoded features.
 
         Returns:
-            31 (10 rank + 4 hole + 10 board + 7 context)
+            136 (10 rank + 34 hole + 85 board + 7 context)
         """
-        return 31
+        return 136

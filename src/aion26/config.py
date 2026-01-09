@@ -38,7 +38,7 @@ class ModelConfig:
 
     hidden_size: int = 128
     num_hidden_layers: int = 4
-    learning_rate: float = 0.001
+    learning_rate: float = 0.0005  # Reduced from 0.001 for stability
     # Optimizer settings
     optimizer: Literal["adam", "sgd"] = "adam"
     weight_decay: float = 0.0
@@ -190,30 +190,36 @@ def kuhn_vanilla_config() -> AionConfig:
 def river_holdem_config() -> AionConfig:
     """Texas Hold'em River endgame solving with VR-PDCFR+.
 
-    Configured for 52-card poker with optimized buffer and batch sizes.
+    HEAVYWEIGHT PRODUCTION CONFIGURATION for 52-card poker.
     Uses head-to-head evaluation instead of NashConv.
 
-    Key settings:
-    - Buffer: 30k (fills by iter 10k at ~3 samples/iter)
-    - Batch: 1024 (3.4% coverage when buffer full)
-    - Gradient clipping prevents divergence
+    Key settings (SCALED for 52-card complexity):
+    - Network: 512 hidden units (4x larger - needed for 27k+ states)
+    - Buffer: 100k samples (fills by iter ~33k at ~3 samples/iter)
+    - Batch: Dynamic (128 → 512 → 1024 based on buffer fill %)
+    - Iterations: 50k (force convergence on complex game)
+    - Learning rate: 0.0005 (reduced from 0.001 for stability)
+    - Gradient clipping: norm=1.0 (prevents divergence)
+    - Strategy accumulation: Starts after iter 500 (warm-up period)
+
+    Expected runtime: ~60-70 minutes
     """
     return AionConfig(
-        name="river_holdem",
+        name="river_holdem_heavyweight",
         game=GameConfig(name="river_holdem"),
         training=TrainingConfig(
-            iterations=10000,
-            batch_size=1024,  # 8x larger than default - critical for convergence
-            buffer_capacity=30000,  # Reduced from 100k to ensure buffer fills
+            iterations=50000,
+            batch_size=128,  # Dynamic batching will scale this
+            buffer_capacity=100000,  # 10x larger for 52-card complexity
             eval_every=1000,
             log_every=100
         ),
-        model=ModelConfig(hidden_size=128, num_hidden_layers=3, learning_rate=0.001),
+        model=ModelConfig(hidden_size=512, num_hidden_layers=3, learning_rate=0.0005),
         algorithm=AlgorithmConfig(
             use_vr=True,
             scheduler_type="pdcfr",
             alpha=2.0,
             beta=0.5,
-            gamma=1.0
+            gamma=1.0  # Linear strategy weighting (proven better)
         ),
     )

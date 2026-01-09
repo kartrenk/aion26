@@ -1,242 +1,128 @@
 #!/usr/bin/env python3
-"""Train Deep CFR on Texas Hold'em River.
-
-This script trains a Deep PDCFR+ agent on the River subgame of Texas Hold'em.
-Since NashConv is computationally infeasible for 52-card games, we use
-head-to-head evaluation against baseline bots.
-
-Validation Strategy:
-- Every 1,000 iterations, play 1,000 hands vs baseline bots
-- Measure win rate in milli-big-blinds per hand (mbb/h)
-- Baselines: RandomBot, CallingStation, HonestBot
-
-Expected Performance:
-- vs RandomBot: +2000-3000 mbb/h (should dominate random)
-- vs CallingStation: +1000-2000 mbb/h (exploit passivity)
-- vs HonestBot: +500-1500 mbb/h (exploit honesty, no bluffs)
-
-Hyperparameters (OPTIMIZED - Post-Divergence Fix):
-- Buffer: 30,000 samples (fills at ~10k iters, ensures 100% utilization)
-- Batch: 1,024 (3.4% coverage - critical for convergence)
-- Iterations: 10,000 (endgame solving)
-- Hidden: 128 units (larger network for 31-dim input)
-- Layers: 3 (standard depth)
-- Gradient clipping: norm=1.0 (prevents divergence)
-"""
+"""Train Deep CFR on Texas Hold'em River - TURBO MODE with Uniform Strategy Weighting."""
 
 import sys
 from pathlib import Path
 import time
 import argparse
 
-# Add src to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
-import numpy as np
 import torch
-
-from aion26.games.river_holdem import new_river_holdem_game
+from aion26.games.rust_wrapper import new_rust_river_game
 from aion26.deep_cfr.networks import HoldemEncoder
 from aion26.learner.deep_cfr import DeepCFRTrainer
-from aion26.learner.discounting import PDCFRScheduler, LinearScheduler
-from aion26.baselines import RandomBot, CallingStation, HonestBot
+from aion26.learner.discounting import PDCFRScheduler, UniformScheduler
+from aion26.baselines import RandomBot
 from aion26.metrics.evaluator import HeadToHeadEvaluator
 
-# ============================================================================
-# Configuration
-# ============================================================================
+# TURBO MODE: Accumulate N traversals before each training step
+TRAVERSALS_PER_STEP = 50
 
-# Parse command line arguments
-parser = argparse.ArgumentParser(description='Train Deep CFR on River Hold\'em')
-parser.add_argument('--iterations', type=int, default=10000, help='Number of training iterations')
-parser.add_argument('--buffer', type=int, default=30000, help='Buffer capacity')
-parser.add_argument('--batch', type=int, default=1024, help='Batch size')
+parser = argparse.ArgumentParser()
+parser.add_argument('--iterations', type=int, default=100000, help='Training steps (×50 = total traversals)')
+parser.add_argument('--buffer', type=int, default=4000000, help='Reservoir buffer capacity (4M for stability)')
+parser.add_argument('--batch', type=int, default=4096)
+parser.add_argument('--lr', type=float, default=0.001)
+parser.add_argument('--use-rust', action='store_true')
+parser.add_argument('--save-every', type=int, default=10000, help='Save every N training steps')
+parser.add_argument('--fixed-board', action='store_true')
 args = parser.parse_args()
 
-ITERATIONS = args.iterations
-BUFFER_CAPACITY = args.buffer  # Optimized: 30k fills at ~10k iters
-BATCH_SIZE = args.batch  # Critical: Must be 1024 for convergence
-HIDDEN_SIZE = 128
-NUM_LAYERS = 3
-LEARNING_RATE = 0.001
-
-EVAL_EVERY = 1000
-EVAL_HANDS = 1000
-
-# ============================================================================
-# Main Training Loop
-# ============================================================================
-
 def main():
-    print("="*80)
-    print("TEXAS HOLD'EM RIVER - DEEP PDCFR+ TRAINING")
-    print("="*80)
-    print()
+    total_traversals = args.iterations * TRAVERSALS_PER_STEP
 
-    print("Configuration:")
-    print(f"  Game: Texas Hold'em River (52 cards)")
-    print(f"  Iterations: {ITERATIONS:,}")
-    print(f"  Buffer: {BUFFER_CAPACITY:,} samples")
-    print(f"  Batch: {BATCH_SIZE}")
-    print(f"  Network: {HIDDEN_SIZE}×{NUM_LAYERS}")
-    print(f"  Eval: Every {EVAL_EVERY} iters, {EVAL_HANDS} hands")
-    print()
+    print("="*80, flush=True)
+    print("TEXAS HOLD'EM RIVER - TURBO MODE (UNIFORM WEIGHTING FIX)", flush=True)
+    print("="*80, flush=True)
+    print(f"Training Steps: {args.iterations:,} × {TRAVERSALS_PER_STEP} = {total_traversals:,} traversals", flush=True)
+    print(f"Buffer: {args.buffer:,} (TENSOR, O(1)) | Batch: {args.batch} | LR: {args.lr}", flush=True)
+    print(f"Save: every {args.save_every:,} steps ({args.save_every * TRAVERSALS_PER_STEP:,} traversals)", flush=True)
+    print(flush=True)
 
-    # Create game and encoder
-    print("Initializing...")
-    game = new_river_holdem_game()
+    if args.fixed_board:
+        game = new_rust_river_game(fixed_board=[12, 11, 10, 9, 13])
+    else:
+        game = new_rust_river_game()
+
     encoder = HoldemEncoder()
-
-    print(f"  Game: TexasHoldemRiver")
-    print(f"  Encoder: HoldemEncoder ({encoder.input_size} dims)")
-    print(f"  Actions: 4 (Fold, Check/Call, Bet Pot, All-In)")
-    print()
-
-    # Create trainer
     trainer = DeepCFRTrainer(
         initial_state=game,
         encoder=encoder,
         input_size=encoder.input_size,
-        output_size=4,  # 4 actions
-        hidden_size=HIDDEN_SIZE,
-        num_hidden_layers=NUM_LAYERS,
-        buffer_capacity=BUFFER_CAPACITY,
-        batch_size=BATCH_SIZE,
-        learning_rate=LEARNING_RATE,
+        output_size=4,
+        hidden_size=512,
+        num_hidden_layers=3,
+        buffer_capacity=args.buffer,
+        batch_size=args.batch,
+        learning_rate=args.lr,
         regret_scheduler=PDCFRScheduler(alpha=2.0, beta=0.5),
-        strategy_scheduler=LinearScheduler(),
-        # Note: VR (variance reduction) not implemented yet in this trainer
+        strategy_scheduler=UniformScheduler(),  # FIXED: Uniform weighting for stability
+        device="cpu"
     )
 
-    print(f"Trainer initialized:")
-    print(f"  Regret scheduler: PDCFR (α=2.0, β=0.5)")
-    print(f"  Strategy scheduler: Linear")
-    print()
-
-    # Create baseline bots
     random_bot = RandomBot()
-    calling_bot = CallingStation()
-    honest_bot = HonestBot()
-
-    print("Baseline bots:")
-    print(f"  RandomBot: Uniform random policy")
-    print(f"  CallingStation: Always checks/calls")
-    print(f"  HonestBot: Strength-based (>0.8: bet, >0.5: call, else: fold)")
-    print()
-
-    # Create evaluator
     evaluator = HeadToHeadEvaluator(big_blind=2.0)
+    models_dir = Path(__file__).parent.parent / "models"
+    models_dir.mkdir(exist_ok=True)
 
-    print("="*80)
-    print("TRAINING")
-    print("="*80)
-    print()
-
+    print("TRAINING (TURBO MODE)", flush=True)
+    print("="*80, flush=True)
     start_time = time.time()
+    traversal_count = 0
 
-    for iteration in range(1, ITERATIONS + 1):
-        # Run one iteration
-        metrics = trainer.run_iteration()
+    for step in range(1, args.iterations + 1):
+        # === 1. BURST GENERATION (Rust/CPU Speed) ===
+        # Accumulate N traversals without GPU overhead
+        trainer.collect_experience(num_traversals=TRAVERSALS_PER_STEP)
+        traversal_count += TRAVERSALS_PER_STEP
 
-        # Print progress
-        if iteration % 100 == 0 or iteration == 1:
+        # === 2. SINGLE TRAINING UPDATE (GPU) ===
+        metrics = trainer.train_step()
+
+        # Logging
+        if step % 100 == 0 or step == 1:
             elapsed = time.time() - start_time
-            iter_per_sec = iteration / elapsed if elapsed > 0 else 0
+            trav_per_sec = traversal_count / elapsed if elapsed > 0 else 0
+            print(f"Step {step:7d} ({traversal_count:,} trav) | Loss: {metrics.get('loss', 0):.4f} | "
+                  f"Buffer: {len(trainer.buffer):7d}/{args.buffer} "
+                  f"({trainer.buffer.fill_percentage:5.1f}%) | {trav_per_sec:.0f} trav/s", flush=True)
 
-            print(
-                f"Iter {iteration:5d} | "
-                f"Loss: {metrics.get('loss', 0):.4f} | "
-                f"Buffer: {len(trainer.buffer):6d}/{BUFFER_CAPACITY} "
-                f"({trainer.buffer.fill_percentage:5.1f}%) | "
-                f"{iter_per_sec:.1f} it/s"
-            )
-
-        # Evaluate against baseline bots
-        if iteration % EVAL_EVERY == 0:
-            print()
-            print(f"{'='*80}")
-            print(f"EVALUATION AT ITERATION {iteration}")
-            print(f"{'='*80}")
-            print()
-
-            # Get current strategy
+        if step % args.save_every == 0:
+            print(f"\nCHECKPOINT {traversal_count:,} traversals (Step {step:,})", flush=True)
             strategy = trainer.get_all_average_strategies()
+            print(f"Strategy: {len(strategy):,} states", flush=True)
 
-            if len(strategy) == 0:
-                print("⚠️  No strategy learned yet, skipping evaluation")
-                print()
-                continue
+            cp_path = models_dir / f"river_checkpoint_{traversal_count}.pt"
+            torch.save({
+                'traversals': traversal_count,
+                'training_steps': step,
+                'advantage_network': trainer.advantage_net.state_dict(),
+                'target_network': trainer.target_net.state_dict(),
+                'optimizer': trainer.optimizer.state_dict(),
+                'strategy_sum': trainer.strategy_sum,
+                'config': {'hidden_size': 512, 'num_layers': 3, 'learning_rate': args.lr,
+                          'buffer_capacity': args.buffer, 'traversals_per_step': TRAVERSALS_PER_STEP}
+            }, cp_path)
+            print(f"Saved: {cp_path.name}", flush=True)
 
-            print(f"Strategy size: {len(strategy)} information states")
-            print()
+            result = evaluator.evaluate(game, strategy, random_bot, 5000)
+            print(f"vs RandomBot: {result.avg_mbb_per_hand:+.0f} mbb/h\n", flush=True)
 
-            # Evaluate vs each bot
-            opponents = {
-                "RandomBot": random_bot,
-                "CallingStation": calling_bot,
-                "HonestBot": honest_bot,
-            }
+    elapsed = time.time() - start_time
+    print(f"\nDone in {elapsed/60:.1f} min ({traversal_count:,} traversals)", flush=True)
 
-            for name, bot in opponents.items():
-                print(f"Playing {EVAL_HANDS} hands vs {name}...")
-
-                result = evaluator.evaluate(
-                    initial_state=game,
-                    strategy=strategy,
-                    opponent=bot,
-                    num_hands=EVAL_HANDS
-                )
-
-                print(f"  Win rate: {result.avg_mbb_per_hand:+7.0f} mbb/h "
-                      f"± {result.confidence_95:.0f} (95% CI)")
-                print(f"  Total: {result.agent_winnings:+.1f} BB "
-                      f"over {result.num_hands} hands")
-                print()
-
-            print(f"{'='*80}")
-            print()
-
-    # Final summary
-    elapsed_total = time.time() - start_time
-    print()
-    print("="*80)
-    print("TRAINING COMPLETE")
-    print("="*80)
-    print()
-    print(f"Total time: {elapsed_total:.1f}s ({elapsed_total/60:.1f} min)")
-    print(f"Final buffer: {len(trainer.buffer)}/{BUFFER_CAPACITY} "
-          f"({trainer.buffer.fill_percentage:.1f}%)")
-    print()
-
-    # Final evaluation
-    print("Final Evaluation:")
-    print()
-
+    final_path = models_dir / "river_v1_turbo.pt"
     strategy = trainer.get_all_average_strategies()
-    print(f"Strategy size: {len(strategy)} information states")
-    print()
-
-    opponents = {
-        "RandomBot": random_bot,
-        "CallingStation": calling_bot,
-        "HonestBot": honest_bot,
-    }
-
-    for name, bot in opponents.items():
-        print(f"{name}:")
-        result = evaluator.evaluate(
-            initial_state=game,
-            strategy=strategy,
-            opponent=bot,
-            num_hands=EVAL_HANDS
-        )
-        print(f"  {result.avg_mbb_per_hand:+7.0f} mbb/h ± {result.confidence_95:.0f}")
-
-    print()
-    print("Training complete! 🚀")
-    print()
-
+    torch.save({
+        'traversals': traversal_count,
+        'training_steps': args.iterations,
+        'advantage_network': trainer.advantage_net.state_dict(),
+        'final_strategy': strategy,
+        'config': {'total_traversals': traversal_count, 'traversals_per_step': TRAVERSALS_PER_STEP}
+    }, final_path)
+    print(f"Final: {final_path}", flush=True)
 
 if __name__ == "__main__":
     main()

@@ -156,22 +156,27 @@ class HonestBot(BaselineBot):
     """
 
     def __init__(self):
-        """Initialize HonestBot with treys evaluator."""
+        """Initialize HonestBot with evaluator."""
         if not TREYS_AVAILABLE:
             raise ImportError("treys library required for HonestBot. Install with: pip install treys")
         self.evaluator = Evaluator()
 
-        # Treys rank ranges (lower is better)
-        # Royal Flush: 1
-        # High Card: 7462 (worst)
+        # Rank ranges (lower is better): Royal Flush=1, High Card=7462
         self.BEST_RANK = 1
         self.WORST_RANK = 7462
+
+        # Try to import Rust evaluator for faster evaluation
+        try:
+            import aion26_rust
+            self.rust_evaluator = aion26_rust
+        except ImportError:
+            self.rust_evaluator = None
 
     def _get_hand_strength(self, state) -> float:
         """Calculate hand strength from 0 (worst) to 1 (best).
 
         Args:
-            state: TexasHoldemRiver game state
+            state: TexasHoldemRiver or RustRiverWrapper game state
 
         Returns:
             Normalized hand strength in [0, 1]
@@ -185,8 +190,16 @@ class HonestBot(BaselineBot):
         hand = state.hands[player]
         board = state.board
 
-        # Evaluate hand (lower rank = better hand in treys)
-        rank = self.evaluator.evaluate(board, hand)
+        # Detect card format: Rust cards are 0-51, treys cards are large bit flags
+        is_rust_format = all(0 <= c <= 51 for c in hand + board)
+
+        if is_rust_format and self.rust_evaluator is not None:
+            # Use Rust evaluator (expects 7 cards in 0-51 format)
+            seven_cards = hand + board
+            rank = self.rust_evaluator.evaluate_7_cards(seven_cards)
+        else:
+            # Use treys evaluator (expects separate hand and board)
+            rank = self.evaluator.evaluate(board, hand)
 
         # Normalize to [0, 1] where 1 is best
         # strength = (WORST - rank) / (WORST - BEST)

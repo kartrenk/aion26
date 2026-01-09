@@ -5,10 +5,13 @@ description = "Deep PDCFR+ framework for imperfect information games"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "flask>=3.1.2",
+    "flask-socketio>=5.6.0",
     "numpy>=2.4.0",
     "open-spiel>=1.6.11",
     "pyyaml>=6.0",
     "scipy>=1.16.3",
+    "torch>=2.9.1",
     "treys>=0.1.8",
 ]
 

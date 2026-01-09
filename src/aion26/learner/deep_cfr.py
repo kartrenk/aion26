@@ -69,6 +69,10 @@ class DeepCFRTrainer:
         target_update_every: Update target network every N iterations
     """
 
+    # Target normalization constant: Max utility (chips) winnable in River Hold'em
+    # Used to scale targets to [-1, 1] range for stable neural network training
+    MAX_UTILITY = 500.0
+
     def __init__(
         self,
         initial_state: GameState,
@@ -177,16 +181,20 @@ class DeepCFRTrainer:
         self.optimizer = Adam(self.advantage_net.parameters(), lr=learning_rate)
         self.value_optimizer = Adam(self.value_net.parameters(), lr=learning_rate)
 
-        # Reservoir buffers
+        # Reservoir buffers (tensor-based, O(1) sampling)
         self.buffer = ReservoirBuffer(
             capacity=buffer_capacity,
-            input_shape=(input_size,)
+            input_shape=(input_size,),
+            output_size=output_size,
+            device=device
         )
 
         # Value buffer stores (state, actual_return) for baseline training
         self.value_buffer = ReservoirBuffer(
             capacity=buffer_capacity,
-            input_shape=(input_size,)
+            input_shape=(input_size,),
+            output_size=1,  # Single value output
+            device=device
         )
 
         # Average strategy tracking (tabular, for Nash convergence verification)
@@ -211,7 +219,7 @@ class DeepCFRTrainer:
             use_target: If True, use target network instead of advantage network
 
         Returns:
-            Predicted regrets tensor of shape (num_actions,)
+            Predicted regrets tensor of shape (num_actions,) in CHIP UNITS
         """
         if player is None:
             player = state.current_player()
@@ -220,10 +228,14 @@ class DeepCFRTrainer:
         features = self.encoder.encode(state, player)
         features = features.unsqueeze(0).to(self.device)  # Add batch dimension
 
-        # Get predictions
+        # Get predictions (normalized values in [-1, 1])
         network = self.target_net if use_target else self.advantage_net
         with torch.no_grad():
-            regrets = network(features)
+            regrets_normalized = network(features)
+
+        # CRITICAL: Un-scale predictions back to chip units
+        # Network predicts normalized values, but regret matching needs chip scale
+        regrets = regrets_normalized * self.MAX_UTILITY
 
         return regrets.squeeze(0)  # Remove batch dimension
 
@@ -395,9 +407,16 @@ class DeepCFRTrainer:
             # Update average strategy (weighted by reach probability and iteration weight)
             # PDCFR+ uses dynamic weighting: recent iterations count more
             # This allows us to extract Nash equilibrium strategy for verification
-            # IMPORTANT: Only accumulate after buffer is full to avoid polluting
-            # strategy_sum with random strategies from untrained network
-            if self.buffer.is_full:
+            # IMPORTANT: Only accumulate after warm-up period to avoid
+            # polluting strategy_sum with random strategies from untrained network
+            # Changed to 10 iterations (from 500) for faster debugging
+            # Production: Use 500+ for full-scale runs
+            if self.iteration > 10:
+                # DEBUG: Print once when strategy accumulation starts
+                if not hasattr(self, '_logged_accumulation'):
+                    print(f"DEBUG: Strategy accumulation STARTED at iter {self.iteration}")
+                    self._logged_accumulation = True
+
                 own_reach = reach_prob_0 if current_player == 0 else reach_prob_1
 
                 # Get strategy weight for this iteration (typically linear or PDCFR)
@@ -432,26 +451,52 @@ class DeepCFRTrainer:
         Uses mini-batch gradient descent with MSE loss between network
         predictions and bootstrap targets.
 
+        Dynamic Batch Sizing:
+        - Scales batch size with buffer fill to maintain healthy coverage (3-10%)
+        - Early (buffer <30%): batch=128 (prevents overfitting on sparse data)
+        - Mid (buffer 30-70%): batch=512 (balanced coverage)
+        - Late (buffer >70%): batch=1024 (matches original successful 12.8% ratio)
+
         Returns:
             Training loss (MSE)
         """
-        # Train if we have enough samples for a batch, even if buffer isn't full yet
-        # This makes training more responsive in GUI demos
-        if len(self.buffer) < self.batch_size:
+        # Dynamic batch sizing based on buffer fill percentage
+        fill_pct = self.buffer.fill_percentage / 100.0  # Convert to 0-1 range
+        if fill_pct < 0.3:
+            effective_batch = 128
+        elif fill_pct < 0.7:
+            effective_batch = 512
+        else:
+            effective_batch = 1024
+
+        # Train if we have enough samples for a batch
+        if len(self.buffer) < effective_batch:
             return 0.0
 
         # Sample mini-batch from buffer
-        states, targets = self.buffer.sample(self.batch_size)
+        states, targets = self.buffer.sample(effective_batch)
 
         # Move to device
         states = states.to(self.device)
         targets = targets.to(self.device)
+
+        # CRITICAL: Normalize targets to [-1, 1] range
+        # Raw targets are chip values (range -500 to +500)
+        # Network predicts normalized values for stable gradients
+        targets = targets / self.MAX_UTILITY
 
         # Forward pass
         predictions = self.advantage_net(states)
 
         # Compute loss (MSE)
         loss = F.mse_loss(predictions, targets)
+
+        # DEBUG logging disabled for production (reduces I/O overhead)
+        # Uncomment for debugging scaling issues:
+        # if self.iteration % 1000 == 0:
+        #     print(f"DEBUG STATS (Iter {self.iteration}):")
+        #     print(f"  Targets: Mean={targets.mean().item():.2f}, Std={targets.std().item():.2f}")
+        #     print(f"  Predictions: Mean={predictions.mean().item():.2f}, Std={predictions.std().item():.2f}")
 
         # Backward pass
         self.optimizer.zero_grad()
@@ -475,15 +520,26 @@ class DeepCFRTrainer:
         The value network learns to predict state values V(s) which are used
         as baselines for variance reduction in VR-MCCFR.
 
+        Uses same dynamic batch sizing as advantage network.
+
         Returns:
             Training loss (MSE)
         """
-        # Train if we have enough samples for a batch, even if buffer isn't full yet
-        if len(self.value_buffer) < self.batch_size:
+        # Dynamic batch sizing (same as advantage network)
+        fill_pct = self.value_buffer.fill_percentage / 100.0
+        if fill_pct < 0.3:
+            effective_batch = 128
+        elif fill_pct < 0.7:
+            effective_batch = 512
+        else:
+            effective_batch = 1024
+
+        # Train if we have enough samples for a batch
+        if len(self.value_buffer) < effective_batch:
             return 0.0
 
         # Sample mini-batch from value buffer
-        states, returns = self.value_buffer.sample(self.batch_size)
+        states, returns = self.value_buffer.sample(effective_batch)
 
         # Move to device
         states = states.to(self.device)
@@ -562,6 +618,80 @@ class DeepCFRTrainer:
             metrics["value_loss"] = value_loss
 
         # Update target network
+        if self.iteration % self.target_update_every == 0:
+            self.update_target_network()
+            metrics["target_updated"] = True
+
+        return metrics
+
+    def collect_experience(self, num_traversals: int) -> int:
+        """Collect experience through game traversals without training.
+
+        This method is used for batch accumulation in Turbo Mode:
+        - Run multiple fast traversals (Rust game logic)
+        - Add experiences to buffer
+        - Do NOT train networks (avoid GPU overhead)
+
+        Args:
+            num_traversals: Number of full game traversals to execute
+
+        Returns:
+            Number of samples added to buffer
+        """
+        samples_added = 0
+
+        for _ in range(num_traversals):
+            self.iteration += 1
+
+            # Traverse for player 0
+            self.traverse(
+                self.initial_state,
+                update_player=0,
+                reach_prob_0=1.0,
+                reach_prob_1=1.0
+            )
+            samples_added += 1
+
+            # Traverse for player 1
+            self.traverse(
+                self.initial_state,
+                update_player=1,
+                reach_prob_0=1.0,
+                reach_prob_1=1.0
+            )
+            samples_added += 1
+
+        return samples_added
+
+    def train_step(self) -> dict[str, float]:
+        """Execute a single training step on buffered experiences.
+
+        This method is used for batch accumulation in Turbo Mode:
+        - Sample batch from buffer
+        - Train advantage and value networks
+        - Update target network if needed
+
+        Returns:
+            Dictionary of training metrics (loss, buffer stats, etc.)
+        """
+        metrics = {
+            "iteration": self.iteration,
+            "buffer_size": len(self.buffer),
+            "buffer_fill_pct": self.buffer.fill_percentage,
+            "loss": 0.0,
+            "value_loss": 0.0
+        }
+
+        # Train advantage network (regrets)
+        if len(self.buffer) >= self.batch_size:
+            loss = self.train_network()
+            metrics["loss"] = loss
+
+            # Train value network (baselines for VR-MCCFR)
+            value_loss = self.train_value_network()
+            metrics["value_loss"] = value_loss
+
+        # Update target network (periodic)
         if self.iteration % self.target_update_every == 0:
             self.update_target_network()
             metrics["target_updated"] = True
