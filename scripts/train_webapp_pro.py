@@ -75,7 +75,13 @@ torch.backends.cudnn.allow_tf32 = True
 torch.backends.cudnn.benchmark = True  # Auto-tune convolutions
 torch.set_default_dtype(torch.float32)
 
-from aion26_rust import ParallelTrainer, RustRiverHoldem, ParallelTrainerFull, RustFullHoldem
+try:
+    from aion26_rust import ParallelTrainer, RustRiverHoldem, ParallelTrainerFull, RustFullHoldem
+    RUST_AVAILABLE = True
+except ImportError:
+    ParallelTrainer = RustRiverHoldem = ParallelTrainerFull = RustFullHoldem = None
+    RUST_AVAILABLE = False
+    print("[WARN] aion26_rust not available - dashboard will work but training requires the Rust extension")
 from aion26.baselines import RandomBot, CallingStationBot, AlwaysFoldBot
 
 # ============================================================================
@@ -248,6 +254,35 @@ def setup_logging(verbose: bool = False):
 # Default setup (can be overridden by CLI)
 setup_logging(verbose=False)
 logger = logging.getLogger(__name__)
+
+
+# ── SocketIO log handler (streams logs to browser) ──────────────────────
+_log_buffer: List[Dict] = []  # ring buffer for recent logs
+_LOG_BUFFER_MAX = 200
+
+
+class SocketIOLogHandler(logging.Handler):
+    """Captures log records and emits them to connected browsers via SocketIO."""
+
+    def emit(self, record):
+        try:
+            entry = {
+                "ts": datetime.fromtimestamp(record.created).strftime("%H:%M:%S"),
+                "level": record.levelname,
+                "msg": record.getMessage(),
+            }
+            _log_buffer.append(entry)
+            # Keep buffer bounded
+            while len(_log_buffer) > _LOG_BUFFER_MAX:
+                _log_buffer.pop(0)
+            # Emit to all connected clients (best-effort; socketio may not exist yet)
+            # Use namespace='/' explicitly for cross-thread safety
+            try:
+                socketio.emit("log", entry, namespace="/")
+            except Exception:
+                pass
+        except Exception:
+            self.handleError(record)
 
 
 def ts() -> str:
@@ -1276,6 +1311,11 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
 socketio = SocketIO(app, cors_allowed_origins="*")
 
+# Attach SocketIO log handler so logs stream to the browser
+_sio_handler = SocketIOLogHandler()
+_sio_handler.setFormatter(logging.Formatter("%(message)s"))
+logging.getLogger().addHandler(_sio_handler)
+
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -1414,7 +1454,7 @@ HTML_TEMPLATE = """
 
         .bottom-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-columns: 1fr 1fr;
             gap: 20px;
             margin-bottom: 20px;
         }
@@ -1523,6 +1563,35 @@ HTML_TEMPLATE = """
         .scrollable {
             max-height: 300px;
             overflow-y: auto;
+        }
+
+        /* Live log panel */
+        #log-panel {
+            font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+            font-size: 0.78em;
+            line-height: 1.5;
+            max-height: 340px;
+            overflow-y: auto;
+            background: rgba(0,0,0,0.35);
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+        .log-line { white-space: pre-wrap; word-break: break-all; }
+        .log-ts  { color: #555; }
+        .log-DEBUG { color: #666; }
+        .log-INFO  { color: #00d4ff; }
+        .log-WARNING { color: #ff9f43; }
+        .log-ERROR { color: #ff6b6b; font-weight: bold; }
+        .log-CRITICAL { color: #ff0055; font-weight: bold; }
+        .log-toolbar {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 8px;
+        }
+        .log-toolbar .btn {
+            font-size: 0.8em; padding: 4px 12px; margin: 0;
+        }
+        .log-badge {
+            font-size: 0.75em; color: #666; font-style: italic;
         }
     </style>
 </head>
@@ -1655,6 +1724,20 @@ HTML_TEMPLATE = """
                     <div><strong>Epochs Completed:</strong> <span id="epochs-done">0</span></div>
                     <div><strong>Samples Processed:</strong> <span id="samples-done">0</span></div>
                     <div><strong>Available Models:</strong> <span id="model-count">0</span></div>
+                </div>
+            </div>
+
+            <div class="panel" style="grid-column: 1 / -1;">
+                <div class="log-toolbar">
+                    <div class="chart-title" style="margin:0;">Live Logs</div>
+                    <div>
+                        <span class="log-badge" id="log-count">0 messages</span>
+                        <button class="btn" style="background:rgba(255,255,255,0.1);color:#aaa;" onclick="clearLogs()">Clear</button>
+                        <button class="btn" style="background:rgba(255,255,255,0.1);color:#aaa;" id="autoscroll-btn" onclick="toggleAutoScroll()">Auto-scroll: ON</button>
+                    </div>
+                </div>
+                <div id="log-panel">
+                    <div class="log-line"><span class="log-ts">[--:--:--]</span> <span class="log-INFO">Waiting for log messages...</span></div>
                 </div>
             </div>
         </div>
@@ -1927,6 +2010,60 @@ HTML_TEMPLATE = """
         // Initial load
         refreshModelList();
         setInterval(refreshModelList, 10000); // Refresh every 10s
+
+        // ── Live log panel ──────────────────────────────────────────
+        let logAutoScroll = true;
+        let logCount = 0;
+        const LOG_MAX_LINES = 500;
+
+        function appendLog(entry) {
+            const panel = document.getElementById('log-panel');
+            // Remove placeholder on first real message
+            if (logCount === 0) panel.innerHTML = '';
+
+            const div = document.createElement('div');
+            div.className = 'log-line';
+            div.innerHTML = '<span class="log-ts">[' + entry.ts + ']</span> ' +
+                '<span class="log-' + entry.level + '">' +
+                entry.msg.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
+            panel.appendChild(div);
+            logCount++;
+
+            // Trim old lines
+            while (panel.children.length > LOG_MAX_LINES) {
+                panel.removeChild(panel.firstChild);
+            }
+
+            document.getElementById('log-count').textContent = logCount + ' messages';
+            if (logAutoScroll) panel.scrollTop = panel.scrollHeight;
+        }
+
+        function clearLogs() {
+            const panel = document.getElementById('log-panel');
+            panel.innerHTML = '';
+            logCount = 0;
+            document.getElementById('log-count').textContent = '0 messages';
+        }
+
+        function toggleAutoScroll() {
+            logAutoScroll = !logAutoScroll;
+            document.getElementById('autoscroll-btn').textContent =
+                'Auto-scroll: ' + (logAutoScroll ? 'ON' : 'OFF');
+        }
+
+        // Receive live logs
+        socket.on('log', function(entry) {
+            appendLog(entry);
+        });
+
+        // Fetch buffered logs on connect
+        socket.on('connect', function() {
+            fetch('/logs/recent')
+                .then(r => r.json())
+                .then(data => {
+                    data.logs.forEach(entry => appendLog(entry));
+                });
+        });
     </script>
 </body>
 </html>
@@ -2034,6 +2171,11 @@ def health():
         'uptime_seconds': round(time.time() - APP_START_TIME, 1),
     })
 
+@app.route('/logs/recent')
+def logs_recent():
+    """Return buffered log entries for newly connected clients."""
+    return jsonify({'logs': list(_log_buffer)})
+
 def broadcast_state():
     socketio.emit('update', state.to_dict())
 
@@ -2043,6 +2185,13 @@ def broadcast_state():
 
 def training_loop():
     try:
+        if not RUST_AVAILABLE:
+            logger.error("Cannot start training: aion26_rust extension not installed. "
+                         "Build with: cd src/aion26_rust && maturin develop --release")
+            state.running = False
+            broadcast_state()
+            return
+
         logger.info("Starting training loop with Polyak averaging")
 
         # CODE RED: Use global config, NOT a new instance
@@ -2470,6 +2619,8 @@ def serve(
         console.print(f"[cyan]Solver DB: {len(solved_flops)} flops solved in E:/solver_data[/cyan]")
 
     setup_logging(verbose=verbose)
+    # Re-attach SocketIO log handler (setup_logging clears root handlers)
+    logging.getLogger().addHandler(_sio_handler)
 
     # Display startup banner with Rich
     mode_str = "Full HUNL (4 streets)" if full else "River-only (1 street)"
