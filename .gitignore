@@ -28,7 +28,7 @@ env/
 
 # uv
 .uv/
-uv.lock
+# uv.lock — tracked for reproducible CI builds
 
 # IDEs
 .vscode/
