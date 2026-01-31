@@ -11,7 +11,7 @@ Performance:
 """
 
 import torch
-from typing import Tuple, Optional
+from typing import Tuple
 
 
 class ReservoirBuffer:
@@ -32,11 +32,7 @@ class ReservoirBuffer:
     """
 
     def __init__(
-        self,
-        capacity: int,
-        input_shape: tuple,
-        output_size: int = 4,
-        device: str = "cpu"
+        self, capacity: int, input_shape: tuple, output_size: int = 4, device: str = "cpu"
     ):
         """Initialize tensor-based reservoir buffer.
 
@@ -67,15 +63,9 @@ class ReservoirBuffer:
 
         # Pre-allocate tensors (O(1) indexing, no Python list overhead)
         self.states = torch.zeros(
-            (capacity, self.input_size),
-            dtype=torch.float32,
-            device=self.device
+            (capacity, self.input_size), dtype=torch.float32, device=self.device
         )
-        self.targets = torch.zeros(
-            (capacity, output_size),
-            dtype=torch.float32,
-            device=self.device
-        )
+        self.targets = torch.zeros((capacity, output_size), dtype=torch.float32, device=self.device)
 
         # Buffer state
         self.ptr = 0  # Write pointer (circular)
@@ -142,15 +132,10 @@ class ReservoirBuffer:
             raise ValueError("Cannot sample from empty buffer")
 
         if batch_size > self.size:
-            raise ValueError(
-                f"Batch size {batch_size} exceeds buffer size {self.size}"
-            )
+            raise ValueError(f"Batch size {batch_size} exceeds buffer size {self.size}")
 
         # O(1) random index generation (THE FIX)
-        indices = torch.randint(
-            0, self.size, (batch_size,),
-            device=self.device
-        )
+        indices = torch.randint(0, self.size, (batch_size,), device=self.device)
 
         # O(batch_size) tensor indexing (fast, no Python loop)
         states_batch = self.states[indices]
@@ -191,7 +176,7 @@ class ReservoirBuffer:
             raise ValueError("Buffer is empty")
 
         # Return only filled portion
-        return self.states[:self.size], self.targets[:self.size]
+        return self.states[: self.size], self.targets[: self.size]
 
     @property
     def is_full(self) -> bool:

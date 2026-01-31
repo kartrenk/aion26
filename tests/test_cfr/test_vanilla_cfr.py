@@ -1,6 +1,5 @@
 """Tests for Vanilla CFR implementation."""
 
-import pytest
 import numpy as np
 from aion26.cfr.vanilla import VanillaCFR
 from aion26.cfr.regret_matching import regret_matching, sample_action
@@ -137,13 +136,21 @@ class TestKuhnCFRConvergence:
         # P1: Jb, Qb, Kb (after opponent bet)
         expected_infostates = {
             # P0 first action
-            "J", "Q", "K",
+            "J",
+            "Q",
+            "K",
             # P0 facing a bet after checking
-            "Jcb", "Qcb", "Kcb",
+            "Jcb",
+            "Qcb",
+            "Kcb",
             # P1 after opponent checked
-            "Jc", "Qc", "Kc",
+            "Jc",
+            "Qc",
+            "Kc",
             # P1 after opponent bet
-            "Jb", "Qb", "Kb",
+            "Jb",
+            "Qb",
+            "Kb",
         }
 
         visited_infostates = set(solver.strategy_sum.keys())
@@ -231,7 +238,9 @@ class TestKuhnNashEquilibrium:
         jack_vs_bet_strategy = solver.get_average_strategy("Jb")
         # jack_vs_bet_strategy[0] is probability of folding
         # Just check it's not purely calling (strategy should not be [0, 1])
-        assert jack_vs_bet_strategy[0] > 0.5, f"Jack should tend to fold, but strategy is {jack_vs_bet_strategy}"
+        assert jack_vs_bet_strategy[0] > 0.5, (
+            f"Jack should tend to fold, but strategy is {jack_vs_bet_strategy}"
+        )
 
     def test_strategies_converge_over_time(self):
         """Test that strategies change less as training progresses."""

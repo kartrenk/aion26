@@ -58,9 +58,7 @@ class TestLeducConvergence:
         _, history = trained_cfr
 
         final_abs = abs(history[5000])
-        assert final_abs < 0.05, (
-            f"|NashConv| at iter 5000 is {final_abs:.4f}, expected < 0.05"
-        )
+        assert final_abs < 0.05, f"|NashConv| at iter 5000 is {final_abs:.4f}, expected < 0.05"
 
     def test_early_convergence_visible(self, trained_cfr):
         """NashConv should show clear improvement between iter 200 and 1000."""
@@ -82,6 +80,4 @@ class TestLeducConvergence:
 
         # Leduc has ~288 theoretical info sets; with external sampling
         # we should discover a substantial fraction
-        assert num_info_sets > 50, (
-            f"Only {num_info_sets} info sets discovered, expected >50"
-        )
+        assert num_info_sets > 50, f"Only {num_info_sets} info sets discovered, expected >50"

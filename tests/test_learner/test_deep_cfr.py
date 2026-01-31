@@ -11,13 +11,12 @@ This module tests the DeepCFRTrainer class, including:
 - End-to-end integration
 """
 
-import pytest
 import torch
 import numpy as np
 
 from aion26.learner.deep_cfr import DeepCFRTrainer
 from aion26.deep_cfr.networks import KuhnEncoder
-from aion26.games.kuhn import KuhnPoker, JACK, QUEEN, KING
+from aion26.games.kuhn import KuhnPoker, JACK, QUEEN
 
 
 class TestDeepCFRTrainerInitialization:
@@ -36,7 +35,7 @@ class TestDeepCFRTrainerInitialization:
             hidden_size=64,
             num_hidden_layers=3,
             buffer_capacity=1000,
-            seed=42
+            seed=42,
         )
 
         assert trainer.iteration == 0
@@ -52,11 +51,7 @@ class TestDeepCFRTrainerInitialization:
         encoder = KuhnEncoder()
 
         trainer = DeepCFRTrainer(
-            initial_state=initial_state,
-            encoder=encoder,
-            input_size=10,
-            output_size=2,
-            seed=42
+            initial_state=initial_state, encoder=encoder, input_size=10, output_size=2, seed=42
         )
 
         # Test advantage network
@@ -73,11 +68,7 @@ class TestDeepCFRTrainerInitialization:
         encoder = KuhnEncoder()
 
         trainer = DeepCFRTrainer(
-            initial_state=initial_state,
-            encoder=encoder,
-            input_size=10,
-            output_size=2,
-            seed=42
+            initial_state=initial_state, encoder=encoder, input_size=10, output_size=2, seed=42
         )
 
         # Networks should have identical weights initially
@@ -104,7 +95,7 @@ class TestDeepCFRTrainerInitialization:
             train_every=5,
             target_update_every=20,
             learning_rate=0.0001,
-            seed=123
+            seed=123,
         )
 
         assert trainer.batch_size == 64
@@ -123,11 +114,7 @@ class TestNetworkPredictions:
         encoder = KuhnEncoder()
 
         trainer = DeepCFRTrainer(
-            initial_state=initial_state,
-            encoder=encoder,
-            input_size=10,
-            output_size=2,
-            seed=42
+            initial_state=initial_state, encoder=encoder, input_size=10, output_size=2, seed=42
         )
 
         # Create a test state
@@ -146,11 +133,7 @@ class TestNetworkPredictions:
         encoder = KuhnEncoder()
 
         trainer = DeepCFRTrainer(
-            initial_state=initial_state,
-            encoder=encoder,
-            input_size=10,
-            output_size=2,
-            seed=42
+            initial_state=initial_state, encoder=encoder, input_size=10, output_size=2, seed=42
         )
 
         state = KuhnPoker(cards=(JACK, QUEEN), history="")
@@ -165,11 +148,7 @@ class TestNetworkPredictions:
         encoder = KuhnEncoder()
 
         trainer = DeepCFRTrainer(
-            initial_state=initial_state,
-            encoder=encoder,
-            input_size=10,
-            output_size=2,
-            seed=42
+            initial_state=initial_state, encoder=encoder, input_size=10, output_size=2, seed=42
         )
 
         state = KuhnPoker(cards=(JACK, QUEEN), history="")
@@ -191,11 +170,7 @@ class TestStrategyComputation:
         encoder = KuhnEncoder()
 
         trainer = DeepCFRTrainer(
-            initial_state=initial_state,
-            encoder=encoder,
-            input_size=10,
-            output_size=2,
-            seed=42
+            initial_state=initial_state, encoder=encoder, input_size=10, output_size=2, seed=42
         )
 
         state = KuhnPoker(cards=(JACK, QUEEN), history="")
@@ -217,11 +192,7 @@ class TestStrategyComputation:
         encoder = KuhnEncoder()
 
         trainer = DeepCFRTrainer(
-            initial_state=initial_state,
-            encoder=encoder,
-            input_size=10,
-            output_size=2,
-            seed=42
+            initial_state=initial_state, encoder=encoder, input_size=10, output_size=2, seed=42
         )
 
         state = KuhnPoker(cards=(JACK, QUEEN), history="")
@@ -242,11 +213,7 @@ class TestCFRTraversal:
         encoder = KuhnEncoder()
 
         trainer = DeepCFRTrainer(
-            initial_state=initial_state,
-            encoder=encoder,
-            input_size=10,
-            output_size=2,
-            seed=42
+            initial_state=initial_state, encoder=encoder, input_size=10, output_size=2, seed=42
         )
 
         # Create terminal state: J vs Q, both check
@@ -273,18 +240,13 @@ class TestCFRTraversal:
             input_size=10,
             output_size=2,
             buffer_capacity=100,
-            seed=42
+            seed=42,
         )
 
         initial_buffer_size = len(trainer.buffer)
 
         # Run one traversal
-        trainer.traverse(
-            initial_state,
-            update_player=0,
-            reach_prob_0=1.0,
-            reach_prob_1=1.0
-        )
+        trainer.traverse(initial_state, update_player=0, reach_prob_0=1.0, reach_prob_1=1.0)
 
         # Buffer should have new experiences
         assert len(trainer.buffer) > initial_buffer_size
@@ -295,20 +257,11 @@ class TestCFRTraversal:
         encoder = KuhnEncoder()
 
         trainer = DeepCFRTrainer(
-            initial_state=initial_state,
-            encoder=encoder,
-            input_size=10,
-            output_size=2,
-            seed=42
+            initial_state=initial_state, encoder=encoder, input_size=10, output_size=2, seed=42
         )
 
         # Should not raise error on chance node
-        value = trainer.traverse(
-            initial_state,
-            update_player=0,
-            reach_prob_0=1.0,
-            reach_prob_1=1.0
-        )
+        value = trainer.traverse(initial_state, update_player=0, reach_prob_0=1.0, reach_prob_1=1.0)
 
         assert isinstance(value, float)
 
@@ -328,7 +281,7 @@ class TestNetworkTraining:
             output_size=2,
             buffer_capacity=1000,
             batch_size=128,
-            seed=42
+            seed=42,
         )
 
         # Buffer is empty, should return 0 loss
@@ -348,17 +301,12 @@ class TestNetworkTraining:
             output_size=2,
             buffer_capacity=100,
             batch_size=32,
-            seed=42
+            seed=42,
         )
 
         # Fill buffer with some experiences
         for _ in range(100):
-            trainer.traverse(
-                initial_state,
-                update_player=0,
-                reach_prob_0=1.0,
-                reach_prob_1=1.0
-            )
+            trainer.traverse(initial_state, update_player=0, reach_prob_0=1.0, reach_prob_1=1.0)
 
         # Get initial weights
         initial_weight = trainer.advantage_net.network[0].weight.data.clone()
@@ -386,17 +334,12 @@ class TestNetworkTraining:
             discount=0.0,  # No bootstrap
             buffer_capacity=100,
             batch_size=32,
-            seed=42
+            seed=42,
         )
 
         # Fill buffer
         for _ in range(100):
-            trainer.traverse(
-                initial_state,
-                update_player=0,
-                reach_prob_0=1.0,
-                reach_prob_1=1.0
-            )
+            trainer.traverse(initial_state, update_player=0, reach_prob_0=1.0, reach_prob_1=1.0)
 
         # Should train successfully
         loss = trainer.train_network()
@@ -417,7 +360,7 @@ class TestTargetNetworkUpdates:
             input_size=10,
             output_size=2,
             polyak=0.1,
-            seed=42
+            seed=42,
         )
 
         # Modify advantage network weights
@@ -448,7 +391,7 @@ class TestTargetNetworkUpdates:
             input_size=10,
             output_size=2,
             polyak=0.1,
-            seed=42
+            seed=42,
         )
 
         # Modify advantage network significantly
@@ -478,11 +421,7 @@ class TestRunIteration:
         encoder = KuhnEncoder()
 
         trainer = DeepCFRTrainer(
-            initial_state=initial_state,
-            encoder=encoder,
-            input_size=10,
-            output_size=2,
-            seed=42
+            initial_state=initial_state, encoder=encoder, input_size=10, output_size=2, seed=42
         )
 
         assert trainer.iteration == 0
@@ -503,7 +442,7 @@ class TestRunIteration:
             input_size=10,
             output_size=2,
             buffer_capacity=100,
-            seed=42
+            seed=42,
         )
 
         initial_size = len(trainer.buffer)
@@ -528,7 +467,7 @@ class TestRunIteration:
             buffer_capacity=50,
             batch_size=32,
             train_every=5,
-            seed=42
+            seed=42,
         )
 
         # Fill buffer first
@@ -552,7 +491,7 @@ class TestRunIteration:
             input_size=10,
             output_size=2,
             target_update_every=10,
-            seed=42
+            seed=42,
         )
 
         # Run 9 iterations
@@ -570,11 +509,7 @@ class TestRunIteration:
         encoder = KuhnEncoder()
 
         trainer = DeepCFRTrainer(
-            initial_state=initial_state,
-            encoder=encoder,
-            input_size=10,
-            output_size=2,
-            seed=42
+            initial_state=initial_state, encoder=encoder, input_size=10, output_size=2, seed=42
         )
 
         metrics = trainer.run_iteration()
@@ -602,7 +537,7 @@ class TestEndToEndIntegration:
             batch_size=32,
             train_every=1,
             target_update_every=10,
-            seed=42
+            seed=42,
         )
 
         # Run 100 iterations
@@ -637,7 +572,7 @@ class TestEndToEndIntegration:
             buffer_capacity=100,
             batch_size=32,
             train_every=1,
-            seed=42
+            seed=42,
         )
 
         # Get initial strategy
@@ -669,7 +604,7 @@ class TestEndToEndIntegration:
             batch_size=32,
             train_every=1,
             target_update_every=10,
-            seed=42
+            seed=42,
         )
 
         # Should run without errors
@@ -692,11 +627,7 @@ class TestPDCFRPlusIntegration:
         encoder = KuhnEncoder()
 
         trainer = DeepCFRTrainer(
-            initial_state=initial_state,
-            encoder=encoder,
-            input_size=10,
-            output_size=2,
-            seed=42
+            initial_state=initial_state, encoder=encoder, input_size=10, output_size=2, seed=42
         )
 
         # Should have default schedulers
@@ -722,7 +653,7 @@ class TestPDCFRPlusIntegration:
             output_size=2,
             regret_scheduler=regret_sched,
             strategy_scheduler=strategy_sched,
-            seed=42
+            seed=42,
         )
 
         assert trainer.regret_scheduler.alpha == 1.5
@@ -731,7 +662,6 @@ class TestPDCFRPlusIntegration:
 
     def test_pdcfr_plus_dynamic_discounting_logic(self):
         """Test that dynamic discounting applies different weights to positive/negative regrets."""
-        from aion26.learner.discounting import PDCFRScheduler
         from unittest.mock import patch
 
         initial_state = KuhnPoker()
@@ -744,7 +674,7 @@ class TestPDCFRPlusIntegration:
             input_size=10,
             output_size=2,
             buffer_capacity=100,
-            seed=42
+            seed=42,
         )
 
         # Set iteration to 10 for testing
@@ -754,7 +684,7 @@ class TestPDCFRPlusIntegration:
         # (positive regret for action 0, negative for action 1)
         mock_target_regrets = torch.tensor([1.0, -1.0], dtype=torch.float32)
 
-        with patch.object(trainer, 'get_predicted_regrets', return_value=mock_target_regrets):
+        with patch.object(trainer, "get_predicted_regrets", return_value=mock_target_regrets):
             # Run one traversal step
             trainer.run_iteration()
 
@@ -777,7 +707,6 @@ class TestPDCFRPlusIntegration:
 
     def test_pdcfr_plus_strategy_weighting(self):
         """Test that strategy accumulation uses dynamic weighting."""
-        from aion26.learner.discounting import LinearScheduler
 
         initial_state = KuhnPoker()
         encoder = KuhnEncoder()
@@ -788,7 +717,7 @@ class TestPDCFRPlusIntegration:
             input_size=10,
             output_size=2,
             buffer_capacity=50,  # Small buffer to fill quickly
-            seed=42
+            seed=42,
         )
 
         # Run until buffer is full (strategy accumulation starts)
@@ -849,7 +778,7 @@ class TestPDCFRPlusIntegration:
             output_size=2,
             buffer_capacity=100,
             regret_scheduler=PDCFRScheduler(alpha=2.0, beta=0.5),
-            seed=42
+            seed=42,
         )
 
         # Vanilla Deep CFR (uniform weighting)
@@ -861,7 +790,7 @@ class TestPDCFRPlusIntegration:
             buffer_capacity=100,
             regret_scheduler=UniformScheduler(),
             strategy_scheduler=UniformScheduler(),
-            seed=42
+            seed=42,
         )
 
         # Run enough iterations to fill buffer and train

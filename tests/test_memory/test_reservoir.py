@@ -9,7 +9,6 @@ These tests verify:
 import pytest
 import torch
 import numpy as np
-from collections import Counter
 
 from aion26.memory.reservoir import ReservoirBuffer
 
@@ -241,7 +240,7 @@ class TestReservoirUniformity:
         expected_mean = (n_samples - 1) / 2  # Mean of 0..9999 is 4999.5
         std_value = values.std()
 
-        print(f"\n  Distribution statistics:")
+        print("\n  Distribution statistics:")
         print(f"    Mean:     {mean_value:.2f} (expected: {expected_mean:.2f})")
         print(f"    Std Dev:  {std_value:.2f}")
         print(f"    Min:      {values.min():.0f}")
@@ -336,7 +335,7 @@ class TestReservoirUniformity:
         # We use a more lenient threshold since we have randomness
         critical_value = 20.0
 
-        print(f"\n  Chi-square test:")
+        print("\n  Chi-square test:")
         print(f"    Chi-square statistic: {chi_square:.2f}")
         print(f"    Degrees of freedom:   {df}")
         print(f"    Critical value (95%): {critical_value:.2f}")
@@ -402,11 +401,9 @@ class TestReservoirTensorIntegrity:
         buffer = ReservoirBuffer(capacity=10, input_shape=(3,), output_size=1)
 
         # Use very specific floating point values
-        original_state = torch.tensor([
-            3.141592653589793,
-            2.718281828459045,
-            1.414213562373095
-        ], dtype=torch.float64)
+        original_state = torch.tensor(
+            [3.141592653589793, 2.718281828459045, 1.414213562373095], dtype=torch.float64
+        )
         original_target = torch.tensor([1.618033988749895], dtype=torch.float64)
 
         buffer.add(original_state, original_target)

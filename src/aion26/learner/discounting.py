@@ -31,7 +31,9 @@ class DiscountScheduler(ABC):
     """
 
     @abstractmethod
-    def get_weight(self, iteration: int, regret_sign: Literal["positive", "negative"] = "positive") -> float:
+    def get_weight(
+        self, iteration: int, regret_sign: Literal["positive", "negative"] = "positive"
+    ) -> float:
         """Get weight for a specific iteration.
 
         Args:
@@ -71,7 +73,9 @@ class UniformScheduler(DiscountScheduler):
     Use case: Baseline comparison, or when you want to keep all history.
     """
 
-    def get_weight(self, iteration: int, regret_sign: Literal["positive", "negative"] = "positive") -> float:
+    def get_weight(
+        self, iteration: int, regret_sign: Literal["positive", "negative"] = "positive"
+    ) -> float:
         """Return constant weight of 1.0."""
         if iteration < 1:
             raise ValueError(f"Iteration must be >= 1, got {iteration}")
@@ -98,7 +102,9 @@ class LinearScheduler(DiscountScheduler):
     - Closed-form accumulated weight: sum(1..t) = t(t+1)/2
     """
 
-    def get_weight(self, iteration: int, regret_sign: Literal["positive", "negative"] = "positive") -> float:
+    def get_weight(
+        self, iteration: int, regret_sign: Literal["positive", "negative"] = "positive"
+    ) -> float:
         """Return linear weight equal to iteration number."""
         if iteration < 1:
             raise ValueError(f"Iteration must be >= 1, got {iteration}")
@@ -135,12 +141,7 @@ class PDCFRScheduler(DiscountScheduler):
                       use uniform (1.0) for negative regrets
     """
 
-    def __init__(
-        self,
-        alpha: float = 2.0,
-        beta: float = 0.5,
-        positive_only: bool = False
-    ):
+    def __init__(self, alpha: float = 2.0, beta: float = 0.5, positive_only: bool = False):
         """Initialize PDCFR scheduler.
 
         Args:
@@ -157,7 +158,9 @@ class PDCFRScheduler(DiscountScheduler):
         self.beta = beta
         self.positive_only = positive_only
 
-    def get_weight(self, iteration: int, regret_sign: Literal["positive", "negative"] = "positive") -> float:
+    def get_weight(
+        self, iteration: int, regret_sign: Literal["positive", "negative"] = "positive"
+    ) -> float:
         """Get PDCFR+ weight for iteration.
 
         Args:
@@ -249,7 +252,9 @@ class DDCFRStrategyScheduler(DiscountScheduler):
             raise ValueError(f"Gamma must be >= 0, got {gamma}")
         self.gamma = gamma
 
-    def get_weight(self, iteration: int, regret_sign: Literal["positive", "negative"] = "positive") -> float:
+    def get_weight(
+        self, iteration: int, regret_sign: Literal["positive", "negative"] = "positive"
+    ) -> float:
         """Get DDCFR strategy weight for iteration.
 
         Args:
@@ -319,7 +324,9 @@ class GeometricScheduler(DiscountScheduler):
             raise ValueError(f"Gamma must be in (0, 1], got {gamma}")
         self.gamma = gamma
 
-    def get_weight(self, iteration: int, regret_sign: Literal["positive", "negative"] = "positive") -> float:
+    def get_weight(
+        self, iteration: int, regret_sign: Literal["positive", "negative"] = "positive"
+    ) -> float:
         """Return geometric weight (depends on total iterations, so we use iteration as T)."""
         if iteration < 1:
             raise ValueError(f"Iteration must be >= 1, got {iteration}")
@@ -348,8 +355,7 @@ class GeometricScheduler(DiscountScheduler):
 
 
 def create_scheduler(
-    scheduler_type: Literal["uniform", "linear", "pdcfr", "ddcfr", "geometric"] = "linear",
-    **kwargs
+    scheduler_type: Literal["uniform", "linear", "pdcfr", "ddcfr", "geometric"] = "linear", **kwargs
 ) -> DiscountScheduler:
     """Factory function to create discounting schedulers.
 

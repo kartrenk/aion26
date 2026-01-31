@@ -9,12 +9,13 @@ Key insight: If isomorphism is working correctly, then:
 
 import pytest
 import numpy as np
-from typing import List, Tuple
+from typing import List
 
 
 # =============================================================================
 # Suit Canonicalization Tests
 # =============================================================================
+
 
 def canonicalize_suits(cards: List[int]) -> dict:
     """
@@ -154,7 +155,7 @@ class TestSuitCanonicalization:
 
         # First 4 cards are hearts -> canonical suit 0
         # Then diamond -> suit 1, club -> suit 2, spade -> suit 3
-        expected = [12, 11, 10, 9, 13+2, 26+5, 39+7]
+        expected = [12, 11, 10, 9, 13 + 2, 26 + 5, 39 + 7]
         assert canon == expected
 
 
@@ -210,6 +211,7 @@ class TestIsomorphicLookup:
 # =============================================================================
 # Board Texture Bucket Tests
 # =============================================================================
+
 
 def compute_board_texture_bucket(flop_cards: List[int]) -> int:
     """
@@ -311,6 +313,7 @@ class TestBoardTextureBuckets:
     def test_bucket_range(self):
         """All buckets should be in valid range."""
         import random
+
         random.seed(42)
 
         for _ in range(1000):
@@ -323,6 +326,7 @@ class TestBoardTextureBuckets:
 # =============================================================================
 # Regret Matching Tests
 # =============================================================================
+
 
 def regret_matching(regrets: np.ndarray) -> np.ndarray:
     """
@@ -364,8 +368,8 @@ class TestRegretMatching:
         assert np.isclose(strategy.sum(), 1.0)
         assert strategy[0] == 0.0  # Negative
         assert strategy[2] == 0.0  # Negative
-        assert np.isclose(strategy[1], 2.0/6.0)
-        assert np.isclose(strategy[3], 4.0/6.0)
+        assert np.isclose(strategy[1], 2.0 / 6.0)
+        assert np.isclose(strategy[3], 4.0 / 6.0)
 
     def test_all_negative_uses_argmax(self):
         """All negative regrets should use argmax (least-bad action)."""
@@ -401,6 +405,7 @@ class TestRegretMatching:
 # Rust Integration Tests (requires aion26_rust module)
 # =============================================================================
 
+
 class TestRustIntegration:
     """Test Rust implementation matches Python reference."""
 
@@ -409,6 +414,7 @@ class TestRustIntegration:
         """Try to import Rust module."""
         try:
             import aion26_rust
+
             return aion26_rust
         except ImportError:
             pytest.skip("aion26_rust module not available")
@@ -443,11 +449,14 @@ class TestRustIntegration:
 
         # Should match py_num_canonical_flops()
         expected = rust_module.py_num_canonical_flops()
-        assert len(unique_flops) == expected, f"Expected {expected} unique flops, got {len(unique_flops)}"
+        assert len(unique_flops) == expected, (
+            f"Expected {expected} unique flops, got {len(unique_flops)}"
+        )
 
     def test_texture_bucket_with_bucketing(self, rust_module):
         """Test texture bucketing using the py_create_texture_buckets API."""
         import random
+
         random.seed(42)
 
         # Create bucketing with 200 buckets
@@ -498,6 +507,7 @@ class TestRustIntegration:
 # =============================================================================
 # Game Tree Isomorphism Test
 # =============================================================================
+
 
 class TestGameTreeIsomorphism:
     """Test that isomorphic states produce same game tree lookups."""

@@ -18,7 +18,6 @@ Reference:
 
 from dataclasses import dataclass
 from typing import Optional
-import numpy as np
 
 # Card constants (rank, suit)
 # Ranks: 0=Jack, 1=Queen, 2=King
@@ -34,12 +33,13 @@ HEARTS = 1
 @dataclass(frozen=True)
 class Card:
     """A card with rank and suit."""
+
     rank: int  # 0=J, 1=Q, 2=K
     suit: int  # 0=♠, 1=♥
 
     def __str__(self):
-        rank_str = ['J', 'Q', 'K'][self.rank]
-        suit_str = ['♠', '♥'][self.suit]
+        rank_str = ["J", "Q", "K"][self.rank]
+        suit_str = ["♠", "♥"][self.suit]
         return f"{rank_str}{suit_str}"
 
     def __repr__(self):
@@ -48,9 +48,12 @@ class Card:
 
 # Standard 6-card deck for Leduc
 LEDUC_DECK = [
-    Card(JACK, SPADES), Card(JACK, HEARTS),
-    Card(QUEEN, SPADES), Card(QUEEN, HEARTS),
-    Card(KING, SPADES), Card(KING, HEARTS),
+    Card(JACK, SPADES),
+    Card(JACK, HEARTS),
+    Card(QUEEN, SPADES),
+    Card(QUEEN, HEARTS),
+    Card(KING, SPADES),
+    Card(KING, HEARTS),
 ]
 
 
@@ -79,7 +82,7 @@ class LeducPoker:
         history: str = "",
         pot: int = 2,
         player_bets: tuple[int, int] = (1, 1),  # Antes
-        round: int = 1
+        round: int = 1,
     ):
         """Initialize Leduc Poker state.
 
@@ -107,8 +110,14 @@ class LeducPoker:
         if self.round == 2 and self.cards[2] is None:
             # Make sure the game hasn't ended with a fold
             # A fold is indicated by "bc" pattern in history
-            actions_this_round = self.history.split('/')[-1] if '/' in self.history else self.history
-            if len(actions_this_round) >= 2 and actions_this_round[-2] == 'b' and actions_this_round[-1] == 'c':
+            actions_this_round = (
+                self.history.split("/")[-1] if "/" in self.history else self.history
+            )
+            if (
+                len(actions_this_round) >= 2
+                and actions_this_round[-2] == "b"
+                and actions_this_round[-1] == "c"
+            ):
                 return False  # Game ended with fold
             return True
 
@@ -123,22 +132,18 @@ class LeducPoker:
         """
         if self.cards[0] is None:
             # Deal first private card (all 6 cards equally likely)
-            return [(i, 1.0/6.0) for i in range(6)]
+            return [(i, 1.0 / 6.0) for i in range(6)]
 
         if self.cards[1] is None:
             # Deal second private card (5 remaining cards)
-            remaining_cards = [
-                i for i in range(6)
-                if LEDUC_DECK[i] != self.cards[0]
-            ]
+            remaining_cards = [i for i in range(6) if LEDUC_DECK[i] != self.cards[0]]
             prob = 1.0 / len(remaining_cards)
             return [(i, prob) for i in remaining_cards]
 
         if self.round == 2 and self.cards[2] is None:
             # Deal public card (4 remaining cards)
             remaining_cards = [
-                i for i in range(6)
-                if LEDUC_DECK[i] not in [self.cards[0], self.cards[1]]
+                i for i in range(6) if LEDUC_DECK[i] not in [self.cards[0], self.cards[1]]
             ]
             prob = 1.0 / len(remaining_cards)
             return [(i, prob) for i in remaining_cards]
@@ -166,7 +171,7 @@ class LeducPoker:
                     history=self.history,
                     pot=self.pot,
                     player_bets=self.player_bets,
-                    round=self.round
+                    round=self.round,
                 )
             elif self.cards[1] is None:
                 # Deal to player 1
@@ -175,7 +180,7 @@ class LeducPoker:
                     history=self.history,
                     pot=self.pot,
                     player_bets=self.player_bets,
-                    round=self.round
+                    round=self.round,
                 )
             else:
                 # Deal public card
@@ -184,7 +189,7 @@ class LeducPoker:
                     history=self.history,
                     pot=self.pot,
                     player_bets=self.player_bets,
-                    round=self.round
+                    round=self.round,
                 )
 
         # Player action
@@ -208,7 +213,7 @@ class LeducPoker:
                     history=new_history,
                     pot=self.pot,  # Pot doesn't change (folder loses their bet)
                     player_bets=tuple(new_bets),
-                    round=self.round
+                    round=self.round,
                 )
             # Otherwise, it's a check
         else:  # bet/call
@@ -225,7 +230,7 @@ class LeducPoker:
 
         # Check if round ends
         # Round ends when both players have acted and bets are equal
-        actions_this_round = new_history.split('/')[-1] if '/' in new_history else new_history
+        actions_this_round = new_history.split("/")[-1] if "/" in new_history else new_history
 
         # Count actions in current round
         round_actions = len(actions_this_round)
@@ -239,7 +244,7 @@ class LeducPoker:
                     history=new_history + "/",  # Separator between rounds
                     pot=new_pot,
                     player_bets=(0, 0),  # Reset bets for new round
-                    round=2
+                    round=2,
                 )
             else:
                 # Round 2 complete -> showdown
@@ -248,7 +253,7 @@ class LeducPoker:
                     history=new_history,
                     pot=new_pot,
                     player_bets=tuple(new_bets),
-                    round=2
+                    round=2,
                 )
 
         return LeducPoker(
@@ -256,7 +261,7 @@ class LeducPoker:
             history=new_history,
             pot=new_pot,
             player_bets=tuple(new_bets),
-            round=self.round
+            round=self.round,
         )
 
     def current_player(self) -> int:
@@ -269,7 +274,7 @@ class LeducPoker:
             return -1
 
         # Get current round actions
-        actions_this_round = self.history.split('/')[-1] if '/' in self.history else self.history
+        actions_this_round = self.history.split("/")[-1] if "/" in self.history else self.history
 
         # Alternate between players
         return len(actions_this_round) % 2
@@ -280,19 +285,23 @@ class LeducPoker:
             return False
 
         # Check for fold
-        if 'c' in self.history:
+        if "c" in self.history:
             # Check if last action was a fold (check after bet)
-            actions_this_round = self.history.split('/')[-1] if '/' in self.history else self.history
+            actions_this_round = (
+                self.history.split("/")[-1] if "/" in self.history else self.history
+            )
 
             # Pattern "bc" means bet then fold
             if len(actions_this_round) >= 2:
-                if actions_this_round[-2] == 'b' and actions_this_round[-1] == 'c':
+                if actions_this_round[-2] == "b" and actions_this_round[-1] == "c":
                     # Player faced a bet and folded
                     return True
 
         # Check for showdown (round 2 complete)
         if self.round == 2 and self.cards[2] is not None:
-            actions_this_round = self.history.split('/')[-1] if '/' in self.history else self.history
+            actions_this_round = (
+                self.history.split("/")[-1] if "/" in self.history else self.history
+            )
 
             # Both players acted and bets are equal
             if len(actions_this_round) >= 2 and self.player_bets[0] == self.player_bets[1]:
@@ -310,9 +319,13 @@ class LeducPoker:
             raise ValueError("Cannot get returns for non-terminal state")
 
         # Check for fold
-        actions_this_round = self.history.split('/')[-1] if '/' in self.history else self.history
+        actions_this_round = self.history.split("/")[-1] if "/" in self.history else self.history
 
-        if len(actions_this_round) >= 2 and actions_this_round[-2] == 'b' and actions_this_round[-1] == 'c':
+        if (
+            len(actions_this_round) >= 2
+            and actions_this_round[-2] == "b"
+            and actions_this_round[-1] == "c"
+        ):
             # Last player folded
             folder = (len(actions_this_round) - 1) % 2
             winner = 1 - folder
@@ -388,7 +401,9 @@ class LeducPoker:
         return f"{card_str}|{public_str}|{history_str}"
 
     def __str__(self):
-        return f"Leduc(cards={self.cards}, history={self.history}, pot={self.pot}, round={self.round})"
+        return (
+            f"Leduc(cards={self.cards}, history={self.history}, pot={self.pot}, round={self.round})"
+        )
 
     def __repr__(self):
         return str(self)

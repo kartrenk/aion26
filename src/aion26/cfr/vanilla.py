@@ -8,7 +8,6 @@ Reference:
 - Zinkevich et al. (2007): "Regret Minimization in Games with Incomplete Information"
 """
 
-from collections import defaultdict
 from typing import Protocol
 import numpy as np
 import numpy.typing as npt

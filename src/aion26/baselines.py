@@ -11,11 +11,11 @@ Used for head-to-head evaluation when NashConv is computationally infeasible
 """
 
 import random
-import numpy as np
 from typing import Protocol, Optional
 
 try:
     from treys import Evaluator
+
     TREYS_AVAILABLE = True
 except ImportError:
     TREYS_AVAILABLE = False
@@ -131,6 +131,7 @@ class CallingStationBot(BaselineBot):
 
 class CallingStation(CallingStationBot):
     """Alias for CallingStationBot (backwards compatibility)."""
+
     pass
 
 
@@ -211,7 +212,9 @@ class HonestBot(BaselineBot):
     def __init__(self):
         """Initialize HonestBot with evaluator."""
         if not TREYS_AVAILABLE:
-            raise ImportError("treys library required for HonestBot. Install with: pip install treys")
+            raise ImportError(
+                "treys library required for HonestBot. Install with: pip install treys"
+            )
         self.evaluator = Evaluator()
 
         # Rank ranges (lower is better): Royal Flush=1, High Card=7462
@@ -221,6 +224,7 @@ class HonestBot(BaselineBot):
         # Try to import Rust evaluator for faster evaluation
         try:
             import aion26_rust
+
             self.rust_evaluator = aion26_rust
         except ImportError:
             self.rust_evaluator = None
@@ -348,6 +352,5 @@ def create_bot(name: str) -> BaselineBot:
         return HonestBot()
     else:
         raise ValueError(
-            f"Unknown bot name: {name}. "
-            f"Available: random, calling_station, always_fold, honest"
+            f"Unknown bot name: {name}. Available: random, calling_station, always_fold, honest"
         )

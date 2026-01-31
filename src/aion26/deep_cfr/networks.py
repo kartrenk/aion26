@@ -21,6 +21,7 @@ from aion26.games.river_holdem import TexasHoldemRiver
 # Import treys for hand evaluation
 try:
     from treys import Card as TreysCard, Evaluator
+
     TREYS_AVAILABLE = True
 except ImportError:
     TREYS_AVAILABLE = False
@@ -179,7 +180,7 @@ class DeepCFRNetwork(nn.Module):
         output_size: int,
         hidden_size: int = 64,
         num_hidden_layers: int = 3,
-        zero_init_output: bool = True
+        zero_init_output: bool = True,
     ):
         """Initialize the network.
 
@@ -267,10 +268,12 @@ class DeepCFRNetwork(nn.Module):
             raise ValueError(f"Polyak must be in [0, 1], got {polyak}")
 
         # Validate architecture compatibility
-        if (self.input_size != source_network.input_size or
-            self.output_size != source_network.output_size or
-            self.hidden_size != source_network.hidden_size or
-            self.num_hidden_layers != source_network.num_hidden_layers):
+        if (
+            self.input_size != source_network.input_size
+            or self.output_size != source_network.output_size
+            or self.hidden_size != source_network.hidden_size
+            or self.num_hidden_layers != source_network.num_hidden_layers
+        ):
             raise ValueError(
                 f"Cannot copy weights between incompatible networks:\n"
                 f"  Target: {repr(self)}\n"
@@ -279,10 +282,7 @@ class DeepCFRNetwork(nn.Module):
 
         # Copy/blend weights using Polyak averaging
         with torch.no_grad():
-            for target_param, source_param in zip(
-                self.parameters(),
-                source_network.parameters()
-            ):
+            for target_param, source_param in zip(self.parameters(), source_network.parameters()):
                 if polyak == 1.0:
                     # Hard copy
                     target_param.data.copy_(source_param.data)
@@ -362,8 +362,8 @@ class LeducEncoder:
             Last 6 dims: round 2 actions (up to 3 actions × 2 flags)
         """
         # Split history by round
-        if '/' in history:
-            round1_history, round2_history = history.split('/', 1)
+        if "/" in history:
+            round1_history, round2_history = history.split("/", 1)
         else:
             round1_history = history
             round2_history = ""
@@ -437,13 +437,15 @@ class LeducEncoder:
         pot_feature = np.array([state.pot / self.max_pot], dtype=np.float32)
 
         # Concatenate all features
-        all_features = np.concatenate([
-            private_features,   # 6 dims
-            public_features,    # 6 dims
-            round_feature,      # 1 dim
-            history_features,   # 12 dims
-            pot_feature         # 1 dim
-        ])  # Total: 26 dims
+        all_features = np.concatenate(
+            [
+                private_features,  # 6 dims
+                public_features,  # 6 dims
+                round_feature,  # 1 dim
+                history_features,  # 12 dims
+                pot_feature,  # 1 dim
+            ]
+        )  # Total: 26 dims
 
         return torch.from_numpy(all_features)
 
@@ -650,9 +652,7 @@ class ResNetDeepCFR(nn.Module):
         self.input_proj = nn.Linear(input_dim, hidden_dim)
 
         # Residual trunk: 4 blocks
-        self.blocks = nn.ModuleList([
-            ResidualBlock(hidden_dim) for _ in range(num_blocks)
-        ])
+        self.blocks = nn.ModuleList([ResidualBlock(hidden_dim) for _ in range(num_blocks)])
 
         # Output normalization (pre-head)
         self.output_norm = nn.LayerNorm(hidden_dim)
@@ -749,8 +749,8 @@ class ResNetDeepCFR(nn.Module):
         # Decode hole cards (2 cards)
         for i in range(2):
             offset = hole_start + i * 17
-            rank_onehot = flat_state[:, offset:offset+13]
-            suit_onehot = flat_state[:, offset+13:offset+17]
+            rank_onehot = flat_state[:, offset : offset + 13]
+            suit_onehot = flat_state[:, offset + 13 : offset + 17]
             rank = rank_onehot.argmax(dim=1)  # 0-12
             suit = suit_onehot.argmax(dim=1)  # 0-3
             cards[:, i] = suit * 13 + rank  # Convert to 0-51 format
@@ -758,11 +758,11 @@ class ResNetDeepCFR(nn.Module):
         # Decode board cards (5 cards)
         for i in range(5):
             offset = board_start + i * 17
-            rank_onehot = flat_state[:, offset:offset+13]
-            suit_onehot = flat_state[:, offset+13:offset+17]
+            rank_onehot = flat_state[:, offset : offset + 13]
+            suit_onehot = flat_state[:, offset + 13 : offset + 17]
             rank = rank_onehot.argmax(dim=1)
             suit = suit_onehot.argmax(dim=1)
-            cards[:, 2+i] = suit * 13 + rank
+            cards[:, 2 + i] = suit * 13 + rank
 
         # Extract context features (last 7 dims) and pad to context_dim
         context_raw = flat_state[:, -7:]
@@ -771,7 +771,7 @@ class ResNetDeepCFR(nn.Module):
             context = torch.zeros(batch_size, self.context_dim, device=flat_state.device)
             context[:, :7] = context_raw
         else:
-            context = context_raw[:, :self.context_dim]
+            context = context_raw[:, : self.context_dim]
 
         return self.forward(cards, context)
 
@@ -837,7 +837,9 @@ class HoldemEncoder:
             max_stack: Maximum stack size for normalization (default: 200)
         """
         if not TREYS_AVAILABLE:
-            raise ImportError("treys library is required for HoldemEncoder. Install with: pip install treys")
+            raise ImportError(
+                "treys library is required for HoldemEncoder. Install with: pip install treys"
+            )
 
         self.max_pot = max_pot
         self.max_stack = max_stack
@@ -847,6 +849,7 @@ class HoldemEncoder:
         # Try to import Rust evaluator for faster evaluation
         try:
             import aion26_rust
+
             self.rust_evaluator = aion26_rust
         except ImportError:
             self.rust_evaluator = None
@@ -969,42 +972,51 @@ class HoldemEncoder:
         rank_features[rank_category] = 1.0
 
         # 2. Hole cards features (34 dims: 2 cards × 17 bits each)
-        hole_features = np.concatenate([
-            self._encode_card(hand[0]),  # 17 dims
-            self._encode_card(hand[1])   # 17 dims
-        ])
+        hole_features = np.concatenate(
+            [
+                self._encode_card(hand[0]),  # 17 dims
+                self._encode_card(hand[1]),  # 17 dims
+            ]
+        )
 
         # 3. Board cards features (85 dims: 5 cards × 17 bits each)
-        board_features = np.concatenate([
-            self._encode_card(board[i]) for i in range(5)  # 5 × 17 dims
-        ])
+        board_features = np.concatenate(
+            [
+                self._encode_card(board[i])
+                for i in range(5)  # 5 × 17 dims
+            ]
+        )
 
         # 4. Betting context (7 dims)
         current_invested = state.player_0_invested if player == 0 else state.player_1_invested
-        opponent_invested = state.player_1_invested if player == 0 else state.player_0_invested
 
         # Calculate pot odds
         call_amount = max(0, state.current_bet - current_invested)
         pot_after_call = state.pot + call_amount
         pot_odds = call_amount / pot_after_call if pot_after_call > 0 else 0.0
 
-        context_features = np.array([
-            state.pot / self.max_pot,
-            state.stacks[0] / self.max_stack,
-            state.stacks[1] / self.max_stack,
-            state.current_bet / self.max_stack,
-            state.player_0_invested / self.max_stack,
-            state.player_1_invested / self.max_stack,
-            pot_odds
-        ], dtype=np.float32)
+        context_features = np.array(
+            [
+                state.pot / self.max_pot,
+                state.stacks[0] / self.max_stack,
+                state.stacks[1] / self.max_stack,
+                state.current_bet / self.max_stack,
+                state.player_0_invested / self.max_stack,
+                state.player_1_invested / self.max_stack,
+                pot_odds,
+            ],
+            dtype=np.float32,
+        )
 
         # Concatenate all features
-        all_features = np.concatenate([
-            rank_features,    # 10 dims
-            hole_features,    # 34 dims
-            board_features,   # 85 dims
-            context_features  # 7 dims
-        ])  # Total: 136 dims
+        all_features = np.concatenate(
+            [
+                rank_features,  # 10 dims
+                hole_features,  # 34 dims
+                board_features,  # 85 dims
+                context_features,  # 7 dims
+            ]
+        )  # Total: 136 dims
 
         return torch.from_numpy(all_features)
 

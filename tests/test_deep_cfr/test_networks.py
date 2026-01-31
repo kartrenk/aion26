@@ -85,11 +85,20 @@ class TestKuhnEncoder:
         # Card (J): [1, 0, 0]
         # History (empty): [0, 0, 0, 0, 0, 0]
         # Pot (2/5): [0.4]
-        expected = torch.tensor([
-            1.0, 0.0, 0.0,  # Jack
-            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  # No history
-            2.0 / 5.0  # Pot = 2 (antes)
-        ])
+        expected = torch.tensor(
+            [
+                1.0,
+                0.0,
+                0.0,  # Jack
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,  # No history
+                2.0 / 5.0,  # Pot = 2 (antes)
+            ]
+        )
         torch.testing.assert_close(features, expected)
 
     def test_encode_state_with_history_jb(self):
@@ -105,11 +114,20 @@ class TestKuhnEncoder:
         # Card (Q): [0, 1, 0]
         # History ('b'): [0, 1, 0, 0, 0, 0]
         # Pot (3/5): [0.6]
-        expected = torch.tensor([
-            0.0, 1.0, 0.0,  # Queen
-            0.0, 1.0, 0.0, 0.0, 0.0, 0.0,  # Bet
-            3.0 / 5.0  # Pot = 3 (2 ante + 1 bet)
-        ])
+        expected = torch.tensor(
+            [
+                0.0,
+                1.0,
+                0.0,  # Queen
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,  # Bet
+                3.0 / 5.0,  # Pot = 3 (2 ante + 1 bet)
+            ]
+        )
         torch.testing.assert_close(features, expected)
 
     def test_encode_state_with_history_cb(self):
@@ -126,11 +144,20 @@ class TestKuhnEncoder:
         # Card (K): [0, 0, 1]
         # History ('cb'): [1, 0, 0, 1, 0, 0]
         # Pot (3/5): [0.6]
-        expected = torch.tensor([
-            0.0, 0.0, 1.0,  # King
-            1.0, 0.0, 0.0, 1.0, 0.0, 0.0,  # Check, Bet
-            3.0 / 5.0  # Pot = 3 (2 ante + 1 bet)
-        ])
+        expected = torch.tensor(
+            [
+                0.0,
+                0.0,
+                1.0,  # King
+                1.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,  # Check, Bet
+                3.0 / 5.0,  # Pot = 3 (2 ante + 1 bet)
+            ]
+        )
         torch.testing.assert_close(features, expected)
 
     def test_encode_state_with_history_cbb(self):
@@ -214,12 +241,7 @@ class TestDeepCFRNetwork:
 
     def test_network_custom_hidden_size(self):
         """Test network with custom hidden layer size."""
-        network = DeepCFRNetwork(
-            input_size=10,
-            output_size=2,
-            hidden_size=128,
-            num_hidden_layers=2
-        )
+        network = DeepCFRNetwork(input_size=10, output_size=2, hidden_size=128, num_hidden_layers=2)
 
         assert network.hidden_size == 128
         assert network.num_hidden_layers == 2
@@ -250,10 +272,7 @@ class TestDeepCFRNetwork:
     def test_forward_pass_with_real_state(self):
         """Test forward pass with real encoded Kuhn state."""
         encoder = KuhnEncoder()
-        network = DeepCFRNetwork(
-            input_size=encoder.feature_size(),
-            output_size=2
-        )
+        network = DeepCFRNetwork(input_size=encoder.feature_size(), output_size=2)
 
         # Encode a real state
         state = KuhnPoker(cards=(JACK, QUEEN), history="")
@@ -288,12 +307,7 @@ class TestDeepCFRNetwork:
 
     def test_network_has_correct_number_of_layers(self):
         """Test network has correct number of layers."""
-        network = DeepCFRNetwork(
-            input_size=10,
-            output_size=2,
-            hidden_size=64,
-            num_hidden_layers=3
-        )
+        network = DeepCFRNetwork(input_size=10, output_size=2, hidden_size=64, num_hidden_layers=3)
 
         # Count Linear layers
         linear_layers = [m for m in network.modules() if isinstance(m, torch.nn.Linear)]
@@ -353,10 +367,7 @@ class TestIntegration:
         """Test full pipeline: state -> encoder -> network."""
         # Setup
         encoder = KuhnEncoder()
-        network = DeepCFRNetwork(
-            input_size=encoder.feature_size(),
-            output_size=2
-        )
+        network = DeepCFRNetwork(input_size=encoder.feature_size(), output_size=2)
 
         # Test all 12 information sets
         test_states = [
@@ -364,17 +375,14 @@ class TestIntegration:
             (KuhnPoker(cards=(JACK, QUEEN), history=""), 0),
             (KuhnPoker(cards=(QUEEN, JACK), history=""), 0),
             (KuhnPoker(cards=(KING, JACK), history=""), 0),
-
             # Player 1 after check
             (KuhnPoker(cards=(JACK, QUEEN), history="c"), 1),
             (KuhnPoker(cards=(QUEEN, JACK), history="c"), 1),
             (KuhnPoker(cards=(KING, QUEEN), history="c"), 1),
-
             # Player 1 after bet
             (KuhnPoker(cards=(JACK, QUEEN), history="b"), 1),
             (KuhnPoker(cards=(QUEEN, JACK), history="b"), 1),
             (KuhnPoker(cards=(KING, JACK), history="b"), 1),
-
             # Player 0 callback
             (KuhnPoker(cards=(JACK, QUEEN), history="cb"), 0),
             (KuhnPoker(cards=(QUEEN, KING), history="cb"), 0),
@@ -454,11 +462,7 @@ class TestPDCFRConformity:
         at the start of training, avoiding premature convergence.
         """
         torch.manual_seed(42)
-        network = DeepCFRNetwork(
-            input_size=10,
-            output_size=2,
-            zero_init_output=True
-        )
+        network = DeepCFRNetwork(input_size=10, output_size=2, zero_init_output=True)
 
         # Create random inputs
         x = torch.randn(10, 10)  # Batch of 10 samples
@@ -469,15 +473,14 @@ class TestPDCFRConformity:
         # All outputs should be very close to zero
         max_abs_value = output.abs().max().item()
 
-        print(f"\n  Zero-init network output statistics:")
+        print("\n  Zero-init network output statistics:")
         print(f"    Max absolute value: {max_abs_value:.6f}")
         print(f"    Mean: {output.mean().item():.6f}")
         print(f"    Std:  {output.std().item():.6f}")
 
         # Pass condition: all values < 0.01
         assert max_abs_value < 0.01, (
-            f"Zero-initialized network produced values > 0.01 "
-            f"(max = {max_abs_value})"
+            f"Zero-initialized network produced values > 0.01 (max = {max_abs_value})"
         )
 
     def test_non_zero_init_produces_larger_values(self):
@@ -488,18 +491,10 @@ class TestPDCFRConformity:
         torch.manual_seed(42)
 
         # Network with zero init
-        net_zero = DeepCFRNetwork(
-            input_size=10,
-            output_size=2,
-            zero_init_output=True
-        )
+        net_zero = DeepCFRNetwork(input_size=10, output_size=2, zero_init_output=True)
 
         # Network without zero init (default PyTorch initialization)
-        net_normal = DeepCFRNetwork(
-            input_size=10,
-            output_size=2,
-            zero_init_output=False
-        )
+        net_normal = DeepCFRNetwork(input_size=10, output_size=2, zero_init_output=False)
 
         # Same input
         x = torch.randn(10, 10)
@@ -510,7 +505,7 @@ class TestPDCFRConformity:
         max_zero = output_zero.abs().max().item()
         max_normal = output_normal.abs().max().item()
 
-        print(f"\n  Comparison:")
+        print("\n  Comparison:")
         print(f"    Zero-init max:   {max_zero:.6f}")
         print(f"    Normal-init max: {max_normal:.6f}")
 
@@ -547,8 +542,12 @@ class TestPDCFRConformity:
         torch.testing.assert_close(output_target_after, output_source_after)
 
         print("\n  Hard copy verification:")
-        print(f"    Before: max diff = {(output_target_before - output_source_before).abs().max():.6f}")
-        print(f"    After:  max diff = {(output_target_after - output_source_after).abs().max():.6e}")
+        print(
+            f"    Before: max diff = {(output_target_before - output_source_before).abs().max():.6f}"
+        )
+        print(
+            f"    After:  max diff = {(output_target_after - output_source_after).abs().max():.6e}"
+        )
 
     def test_copy_weights_soft_update(self):
         """Test soft update (polyak<1.0) for target network.
@@ -579,8 +578,8 @@ class TestPDCFRConformity:
             torch.testing.assert_close(target_param, expected, rtol=1e-5, atol=1e-7)
 
         print(f"\n  Soft update (polyak={polyak}) verification:")
-        print(f"    Formula verified: target = {polyak} * source + {1-polyak} * target_old")
-        print(f"    All parameters match expected values ✓")
+        print(f"    Formula verified: target = {polyak} * source + {1 - polyak} * target_old")
+        print("    All parameters match expected values ✓")
 
     def test_copy_weights_multiple_soft_updates(self):
         """Test multiple soft updates converge target to source.
@@ -609,7 +608,7 @@ class TestPDCFRConformity:
 
             if (i + 1) % 5 == 0:
                 diff = (target(x) - source(x)).abs().max().item()
-                print(f"    After {i+1:2d} updates: diff = {diff:.6f}")
+                print(f"    After {i + 1:2d} updates: diff = {diff:.6f}")
 
         # Final difference should be much smaller
         final_diff = (target(x) - source(x)).abs().max().item()
@@ -666,18 +665,10 @@ class TestPDCFRConformity:
         torch.manual_seed(42)
 
         # Create advantage network (for regrets)
-        advantage_net = DeepCFRNetwork(
-            input_size=10,
-            output_size=2,
-            zero_init_output=True
-        )
+        advantage_net = DeepCFRNetwork(input_size=10, output_size=2, zero_init_output=True)
 
         # Create target network (for bootstrap)
-        target_net = DeepCFRNetwork(
-            input_size=10,
-            output_size=2,
-            zero_init_output=True
-        )
+        target_net = DeepCFRNetwork(input_size=10, output_size=2, zero_init_output=True)
 
         # Initialize target from advantage (hard copy)
         target_net.copy_weights_from(advantage_net, polyak=1.0)
@@ -694,7 +685,7 @@ class TestPDCFRConformity:
         torch.testing.assert_close(regrets, target_regrets)
 
         print("\n  PDCFR+ Integration Test:")
-        print(f"    ✓ Zero-initialized networks")
+        print("    ✓ Zero-initialized networks")
         print(f"    ✓ Near-uniform initial regrets (max = {regrets.abs().max():.6f})")
-        print(f"    ✓ Target network initialized")
-        print(f"    ✓ Ready for PDCFR+ bootstrap training!")
+        print("    ✓ Target network initialized")
+        print("    ✓ Ready for PDCFR+ bootstrap training!")

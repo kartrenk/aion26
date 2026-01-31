@@ -4,6 +4,7 @@ Provides a session-scoped webapp server subprocess and
 per-test Playwright page fixtures.
 """
 
+import os
 import subprocess
 import sys
 import time
@@ -19,7 +20,7 @@ except ImportError:
 WEBAPP_SCRIPT = str(Path(__file__).parent.parent.parent / "scripts" / "train_webapp_pro.py")
 WEBAPP_PORT = 5099
 WEBAPP_URL = f"http://localhost:{WEBAPP_PORT}"
-STARTUP_TIMEOUT = 60  # seconds
+STARTUP_TIMEOUT = 90  # seconds (generous for CI cold start)
 
 
 @pytest.fixture(scope="session")
@@ -28,10 +29,19 @@ def webapp_server():
     if requests is None:
         pytest.skip("requests not installed (install e2e extras)")
 
+    # Verify script exists
+    if not Path(WEBAPP_SCRIPT).exists():
+        pytest.fail(f"Webapp script not found: {WEBAPP_SCRIPT}")
+
+    env = os.environ.copy()
+    # Ensure unbuffered output for subprocess
+    env["PYTHONUNBUFFERED"] = "1"
+
     proc = subprocess.Popen(
         [sys.executable, WEBAPP_SCRIPT, "serve", "--port", str(WEBAPP_PORT)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        env=env,
     )
 
     # Poll /health until the server is ready
@@ -49,10 +59,13 @@ def webapp_server():
 
         # Check if process crashed
         if proc.poll() is not None:
+            stdout = proc.stdout.read().decode(errors="replace")
             stderr = proc.stderr.read().decode(errors="replace")
             raise RuntimeError(
                 f"Webapp process exited with code {proc.returncode} "
-                f"before becoming ready.\nStderr:\n{stderr[:2000]}"
+                f"before becoming ready.\n"
+                f"Stdout:\n{stdout[:3000]}\n"
+                f"Stderr:\n{stderr[:3000]}"
             )
 
         time.sleep(1)
@@ -60,10 +73,12 @@ def webapp_server():
     # Timed out
     proc.terminate()
     proc.wait(timeout=10)
+    stdout = proc.stdout.read().decode(errors="replace")
     stderr = proc.stderr.read().decode(errors="replace")
     raise RuntimeError(
         f"Webapp did not respond on /health within {STARTUP_TIMEOUT}s.\n"
-        f"Stderr:\n{stderr[:2000]}"
+        f"Stdout:\n{stdout[:3000]}\n"
+        f"Stderr:\n{stderr[:3000]}"
     )
 
 

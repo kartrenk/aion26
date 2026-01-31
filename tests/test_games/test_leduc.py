@@ -9,10 +9,7 @@ This module tests the complete Leduc Poker game logic including:
 """
 
 import pytest
-from aion26.games.leduc import (
-    LeducPoker, Card, LEDUC_DECK,
-    JACK, QUEEN, KING, SPADES, HEARTS
-)
+from aion26.games.leduc import LeducPoker, LEDUC_DECK, JACK, QUEEN, KING, SPADES, HEARTS
 
 
 class TestLeducBasics:
@@ -68,12 +65,7 @@ class TestLeducBettingRound1:
     def test_both_check_round1(self):
         """Test when both players check in round 1."""
         # J♠ vs Q♠
-        game = LeducPoker(
-            cards=(LEDUC_DECK[0], LEDUC_DECK[2], None),
-            history="",
-            pot=2,
-            round=1
-        )
+        game = LeducPoker(cards=(LEDUC_DECK[0], LEDUC_DECK[2], None), history="", pot=2, round=1)
 
         # P0 checks
         game = game.apply_action(0)
@@ -88,12 +80,7 @@ class TestLeducBettingRound1:
 
     def test_bet_call_round1(self):
         """Test bet and call in round 1."""
-        game = LeducPoker(
-            cards=(LEDUC_DECK[0], LEDUC_DECK[2], None),
-            history="",
-            pot=2,
-            round=1
-        )
+        game = LeducPoker(cards=(LEDUC_DECK[0], LEDUC_DECK[2], None), history="", pot=2, round=1)
 
         # P0 bets (2 chips)
         game = game.apply_action(1)
@@ -110,12 +97,7 @@ class TestLeducBettingRound1:
 
     def test_bet_fold_round1(self):
         """Test bet and fold in round 1."""
-        game = LeducPoker(
-            cards=(LEDUC_DECK[0], LEDUC_DECK[2], None),
-            history="",
-            pot=2,
-            round=1
-        )
+        game = LeducPoker(cards=(LEDUC_DECK[0], LEDUC_DECK[2], None), history="", pot=2, round=1)
 
         # P0 bets
         game = game.apply_action(1)
@@ -138,10 +120,7 @@ class TestLeducBettingRound2:
         """Test showdown after both check in round 2."""
         # J♠ vs Q♠, public K♠
         game = LeducPoker(
-            cards=(LEDUC_DECK[0], LEDUC_DECK[2], LEDUC_DECK[4]),
-            history="cc/",
-            pot=2,
-            round=2
+            cards=(LEDUC_DECK[0], LEDUC_DECK[2], LEDUC_DECK[4]), history="cc/", pot=2, round=2
         )
 
         # P0 checks
@@ -161,10 +140,7 @@ class TestLeducBettingRound2:
         """Test showdown after bet-call in round 2."""
         # J♠ vs Q♠, public K♠
         game = LeducPoker(
-            cards=(LEDUC_DECK[0], LEDUC_DECK[2], LEDUC_DECK[4]),
-            history="cc/",
-            pot=2,
-            round=2
+            cards=(LEDUC_DECK[0], LEDUC_DECK[2], LEDUC_DECK[4]), history="cc/", pot=2, round=2
         )
 
         # P0 bets (4 chips in round 2)
@@ -188,10 +164,7 @@ class TestLeducHandEvaluation:
         """Test that a pair beats high card."""
         # J♠ vs K♠, public J♥ -> P0 has pair of Jacks
         game = LeducPoker(
-            cards=(LEDUC_DECK[0], LEDUC_DECK[4], LEDUC_DECK[1]),
-            history="cc/cc",
-            pot=2,
-            round=2
+            cards=(LEDUC_DECK[0], LEDUC_DECK[4], LEDUC_DECK[1]), history="cc/cc", pot=2, round=2
         )
 
         assert game.is_terminal()
@@ -202,10 +175,7 @@ class TestLeducHandEvaluation:
         """Test that higher pair wins."""
         # Q♠ vs K♠, public Q♥ -> P0 has pair of Queens
         game = LeducPoker(
-            cards=(LEDUC_DECK[2], LEDUC_DECK[4], LEDUC_DECK[3]),
-            history="cc/cc",
-            pot=2,
-            round=2
+            cards=(LEDUC_DECK[2], LEDUC_DECK[4], LEDUC_DECK[3]), history="cc/cc", pot=2, round=2
         )
 
         returns = game.returns()
@@ -213,10 +183,7 @@ class TestLeducHandEvaluation:
 
         # K♠ vs J♠, public K♥ -> P0 has pair of Kings
         game = LeducPoker(
-            cards=(LEDUC_DECK[4], LEDUC_DECK[0], LEDUC_DECK[5]),
-            history="cc/cc",
-            pot=2,
-            round=2
+            cards=(LEDUC_DECK[4], LEDUC_DECK[0], LEDUC_DECK[5]), history="cc/cc", pot=2, round=2
         )
 
         returns = game.returns()
@@ -226,10 +193,7 @@ class TestLeducHandEvaluation:
         """Test high card tiebreaker."""
         # K♠ vs Q♠, public J♥ -> K beats Q
         game = LeducPoker(
-            cards=(LEDUC_DECK[4], LEDUC_DECK[2], LEDUC_DECK[1]),
-            history="cc/cc",
-            pot=2,
-            round=2
+            cards=(LEDUC_DECK[4], LEDUC_DECK[2], LEDUC_DECK[1]), history="cc/cc", pot=2, round=2
         )
 
         returns = game.returns()
@@ -239,10 +203,7 @@ class TestLeducHandEvaluation:
         """Test tie when both have same rank (different suits)."""
         # J♠ vs J♥, public Q♠ -> Tie (both have J)
         game = LeducPoker(
-            cards=(LEDUC_DECK[0], LEDUC_DECK[1], LEDUC_DECK[2]),
-            history="cc/cc",
-            pot=2,
-            round=2
+            cards=(LEDUC_DECK[0], LEDUC_DECK[1], LEDUC_DECK[2]), history="cc/cc", pot=2, round=2
         )
 
         returns = game.returns()
@@ -254,11 +215,7 @@ class TestLeducInformationStates:
 
     def test_information_state_round1(self):
         """Test info state in round 1."""
-        game = LeducPoker(
-            cards=(LEDUC_DECK[0], LEDUC_DECK[2], None),
-            history="",
-            round=1
-        )
+        game = LeducPoker(cards=(LEDUC_DECK[0], LEDUC_DECK[2], None), history="", round=1)
 
         # Player 0's perspective
         info_state = game.information_state_string()
@@ -269,9 +226,7 @@ class TestLeducInformationStates:
     def test_information_state_round2(self):
         """Test info state in round 2 with public card."""
         game = LeducPoker(
-            cards=(LEDUC_DECK[0], LEDUC_DECK[2], LEDUC_DECK[4]),
-            history="cc/",
-            round=2
+            cards=(LEDUC_DECK[0], LEDUC_DECK[2], LEDUC_DECK[4]), history="cc/", round=2
         )
 
         info_state = game.information_state_string()
@@ -281,11 +236,7 @@ class TestLeducInformationStates:
 
     def test_information_state_different_players(self):
         """Test that different players see different info states."""
-        game = LeducPoker(
-            cards=(LEDUC_DECK[0], LEDUC_DECK[2], None),
-            history="b",
-            round=1
-        )
+        game = LeducPoker(cards=(LEDUC_DECK[0], LEDUC_DECK[2], None), history="b", round=1)
 
         # Player 1's turn
         assert game.current_player() == 1
@@ -300,12 +251,7 @@ class TestLeducPotAccounting:
 
     def test_pot_after_round1_bet_call(self):
         """Test pot after bet-call in round 1."""
-        game = LeducPoker(
-            cards=(LEDUC_DECK[0], LEDUC_DECK[2], None),
-            history="",
-            pot=2,
-            round=1
-        )
+        game = LeducPoker(cards=(LEDUC_DECK[0], LEDUC_DECK[2], None), history="", pot=2, round=1)
 
         game = game.apply_action(1)  # P0 bets 2
         assert game.pot == 4
@@ -316,10 +262,7 @@ class TestLeducPotAccounting:
     def test_pot_after_round2_bet_call(self):
         """Test pot after bet-call in round 2."""
         game = LeducPoker(
-            cards=(LEDUC_DECK[0], LEDUC_DECK[2], LEDUC_DECK[4]),
-            history="cc/",
-            pot=2,
-            round=2
+            cards=(LEDUC_DECK[0], LEDUC_DECK[2], LEDUC_DECK[4]), history="cc/", pot=2, round=2
         )
 
         game = game.apply_action(1)  # P0 bets 4
@@ -330,12 +273,7 @@ class TestLeducPotAccounting:
 
     def test_pot_multiple_bets(self):
         """Test pot with bet-raise sequence."""
-        game = LeducPoker(
-            cards=(LEDUC_DECK[0], LEDUC_DECK[2], None),
-            history="",
-            pot=2,
-            round=1
-        )
+        game = LeducPoker(cards=(LEDUC_DECK[0], LEDUC_DECK[2], None), history="", pot=2, round=1)
 
         # P0 bets
         game = game.apply_action(1)
@@ -354,22 +292,14 @@ class TestLeducEdgeCases:
 
     def test_cannot_get_returns_from_nonterminal(self):
         """Test that returns() raises error for non-terminal states."""
-        game = LeducPoker(
-            cards=(LEDUC_DECK[0], LEDUC_DECK[2], None),
-            history="",
-            round=1
-        )
+        game = LeducPoker(cards=(LEDUC_DECK[0], LEDUC_DECK[2], None), history="", round=1)
 
         with pytest.raises(ValueError):
             game.returns()
 
     def test_legal_actions_terminal(self):
         """Test that terminal states have no legal actions."""
-        game = LeducPoker(
-            cards=(LEDUC_DECK[0], LEDUC_DECK[2], None),
-            history="bc",
-            round=1
-        )
+        game = LeducPoker(cards=(LEDUC_DECK[0], LEDUC_DECK[2], None), history="bc", round=1)
 
         assert game.is_terminal()
         assert game.legal_actions() == []
@@ -386,15 +316,11 @@ class TestLeducEdgeCases:
         outcomes = game.chance_outcomes()
 
         assert len(outcomes) == 6  # All 6 cards
-        assert all(prob == 1.0/6.0 for _, prob in outcomes)
+        assert all(prob == 1.0 / 6.0 for _, prob in outcomes)
 
     def test_chance_outcomes_second_card(self):
         """Test chance outcomes for second private card."""
-        game = LeducPoker(
-            cards=(LEDUC_DECK[0], None, None),
-            history="",
-            round=1
-        )
+        game = LeducPoker(cards=(LEDUC_DECK[0], None, None), history="", round=1)
 
         outcomes = game.chance_outcomes()
         assert len(outcomes) == 5  # 5 remaining cards
@@ -405,11 +331,7 @@ class TestLeducEdgeCases:
 
     def test_chance_outcomes_public_card(self):
         """Test chance outcomes for public card."""
-        game = LeducPoker(
-            cards=(LEDUC_DECK[0], LEDUC_DECK[2], None),
-            history="cc/",
-            round=2
-        )
+        game = LeducPoker(cards=(LEDUC_DECK[0], LEDUC_DECK[2], None), history="cc/", round=2)
 
         outcomes = game.chance_outcomes()
         assert len(outcomes) == 4  # 4 remaining cards

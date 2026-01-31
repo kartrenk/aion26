@@ -15,7 +15,6 @@ File Format:
 from __future__ import annotations
 
 import mmap
-import os
 from pathlib import Path
 from typing import Iterator
 
@@ -108,8 +107,7 @@ class TrajectoryDataset(Dataset):
         """Scan directory for epoch files and load them."""
         # Find all epoch files, sorted by epoch number
         epoch_paths = sorted(
-            self.data_dir.glob("epoch_*.bin"),
-            key=lambda p: int(p.stem.split("_")[1])
+            self.data_dir.glob("epoch_*.bin"), key=lambda p: int(p.stem.split("_")[1])
         )
 
         cumulative = 0
@@ -156,9 +154,7 @@ class TrajectoryDataset(Dataset):
                 hi = mid - 1
         return lo
 
-    def get_batch_from_indices(
-        self, indices: np.ndarray
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def get_batch_from_indices(self, indices: np.ndarray) -> tuple[torch.Tensor, torch.Tensor]:
         """Get a batch of samples from global indices.
 
         More efficient than individual __getitem__ calls when indices
@@ -174,16 +170,13 @@ class TrajectoryDataset(Dataset):
 
         current_epoch = -1
         epoch_indices = []
-        batch_positions = []
 
         for i, idx in enumerate(sorted_indices):
             epoch_idx = self._find_epoch(idx)
             if epoch_idx != current_epoch:
                 # Process previous epoch's indices
                 if epoch_indices:
-                    self._fetch_epoch_batch(
-                        current_epoch, epoch_indices, states_list, targets_list
-                    )
+                    self._fetch_epoch_batch(current_epoch, epoch_indices, states_list, targets_list)
                 current_epoch = epoch_idx
                 epoch_indices = []
 
@@ -192,9 +185,7 @@ class TrajectoryDataset(Dataset):
 
         # Process final epoch
         if epoch_indices:
-            self._fetch_epoch_batch(
-                current_epoch, epoch_indices, states_list, targets_list
-            )
+            self._fetch_epoch_batch(current_epoch, epoch_indices, states_list, targets_list)
 
         # Concatenate and reorder to original index order
         states = np.concatenate(states_list, axis=0)
@@ -281,10 +272,7 @@ class WeightedEpochSampler(Sampler[list[int]]):
             return
 
         # Recency weights: newer epochs get higher weight
-        epoch_weights = np.array([
-            self.alpha ** (num_epochs - i - 1)
-            for i in range(num_epochs)
-        ])
+        epoch_weights = np.array([self.alpha ** (num_epochs - i - 1) for i in range(num_epochs)])
 
         # Scale by number of samples in each epoch
         samples_per_epoch = np.array(self.dataset.samples_per_epoch)

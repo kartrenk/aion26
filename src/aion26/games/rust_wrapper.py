@@ -4,11 +4,10 @@ Provides a GameState-compatible interface for the blazing-fast Rust backend.
 """
 
 from typing import Optional
-import numpy as np
-import numpy.typing as npt
 
 try:
     import aion26_rust
+
     RUST_AVAILABLE = True
 except ImportError:
     RUST_AVAILABLE = False
@@ -31,7 +30,9 @@ class RustRiverWrapper:
                       If None, creates a new game.
         """
         if not RUST_AVAILABLE:
-            raise ImportError("aion26_rust module not found. Build with: uv pip install --editable src/aion26_rust")
+            raise ImportError(
+                "aion26_rust module not found. Build with: uv pip install --editable src/aion26_rust"
+            )
 
         if rust_game is None:
             self._game = aion26_rust.RustRiverHoldem()
@@ -183,13 +184,14 @@ def new_rust_river_game(fixed_board: Optional[list[int]] = None) -> RustRiverWra
     if fixed_board is not None:
         # Fixed board mode
         import aion26_rust
+
         rust_game = aion26_rust.RustRiverHoldem(
             stacks=[100.0, 100.0],
             pot=2.0,
             current_bet=0.0,
             player_0_invested=1.0,
             player_1_invested=1.0,
-            fixed_board=fixed_board
+            fixed_board=fixed_board,
         )
         return RustRiverWrapper(rust_game)
     else:

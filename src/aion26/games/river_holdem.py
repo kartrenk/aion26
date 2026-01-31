@@ -28,7 +28,6 @@ Rules:
 from dataclasses import dataclass
 from typing import Optional
 import numpy as np
-import random
 from treys import Card, Evaluator, Deck
 
 # Action constants
@@ -70,7 +69,9 @@ class TexasHoldemRiver:
         if self.is_dealt:
             assert self.board is not None and len(self.board) == 5, "Board must have 5 cards"
             assert self.hands is not None, "Hands must be dealt"
-            assert len(self.hands[0]) == 2 and len(self.hands[1]) == 2, "Each player must have 2 cards"
+            assert len(self.hands[0]) == 2 and len(self.hands[1]) == 2, (
+                "Each player must have 2 cards"
+            )
 
     def is_chance_node(self) -> bool:
         """Check if this is a chance node (cards need to be dealt)."""
@@ -327,7 +328,7 @@ class TexasHoldemRiver:
             rank = Card.get_rank_int(card)  # 0-12
             suit = Card.get_suit_int(card)  # 0-3
             features.append(rank / 12.0)  # Normalize rank
-            features.append(suit / 3.0)   # Normalize suit
+            features.append(suit / 3.0)  # Normalize suit
 
         # Board cards (5 cards * 2 features = 10 features)
         for card in self.board:

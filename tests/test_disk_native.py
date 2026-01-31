@@ -35,7 +35,9 @@ def collect_samples_with_step(trainer, num_traversals: int) -> int:
     predictions = None
 
     while True:
-        result = trainer.step(predictions, num_traversals=num_traversals if predictions is None else None)
+        result = trainer.step(
+            predictions, num_traversals=num_traversals if predictions is None else None
+        )
 
         if result.is_finished():
             return result.count()

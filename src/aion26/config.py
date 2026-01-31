@@ -29,7 +29,7 @@ class TrainingConfig:
     batch_size: int = 128
     buffer_capacity: int = 1000  # Reduced for quick GUI demos (fills in ~400 iterations)
     eval_every: int = 100  # Evaluate NashConv every N iterations
-    log_every: int = 10    # Log metrics every N iterations
+    log_every: int = 10  # Log metrics every N iterations
 
 
 @dataclass
@@ -51,9 +51,9 @@ class AlgorithmConfig:
     use_vr: bool = True  # Variance Reduction with Value Network
     scheduler_type: Literal["uniform", "linear", "pdcfr", "ddcfr"] = "ddcfr"
     # PDCFR/DDCFR discounting parameters
-    alpha: float = 1.5   # Positive regret discount
-    beta: float = 0.0    # Negative regret discount
-    gamma: float = 2.0   # Strategy discount (for DDCFR)
+    alpha: float = 1.5  # Positive regret discount
+    beta: float = 0.0  # Negative regret discount
+    gamma: float = 2.0  # Strategy discount (for DDCFR)
 
 
 @dataclass
@@ -109,15 +109,11 @@ class AionConfig:
         algorithm = AlgorithmConfig(**data.get("algorithm", {}))
 
         # Top-level fields
-        metadata = {k: v for k, v in data.items() if k not in ["game", "training", "model", "algorithm"]}
+        metadata = {
+            k: v for k, v in data.items() if k not in ["game", "training", "model", "algorithm"]
+        }
 
-        return cls(
-            game=game,
-            training=training,
-            model=model,
-            algorithm=algorithm,
-            **metadata
-        )
+        return cls(game=game, training=training, model=model, algorithm=algorithm, **metadata)
 
     def to_yaml(self, path: str | Path) -> None:
         """Save configuration to YAML file.
@@ -212,7 +208,7 @@ def river_holdem_config() -> AionConfig:
             batch_size=128,  # Dynamic batching will scale this
             buffer_capacity=100000,  # 10x larger for 52-card complexity
             eval_every=1000,
-            log_every=100
+            log_every=100,
         ),
         model=ModelConfig(hidden_size=512, num_hidden_layers=3, learning_rate=0.0005),
         algorithm=AlgorithmConfig(
@@ -220,6 +216,6 @@ def river_holdem_config() -> AionConfig:
             scheduler_type="pdcfr",
             alpha=2.0,
             beta=0.5,
-            gamma=1.0  # Linear strategy weighting (proven better)
+            gamma=1.0,  # Linear strategy weighting (proven better)
         ),
     )

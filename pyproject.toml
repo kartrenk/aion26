@@ -50,6 +50,14 @@ packages = ["src/aion26"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["scripts/archive"]
+
+[tool.ruff.lint]
+ignore = ["E402", "E712"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*.py" = ["F841", "E722", "F401", "F541", "E701"]
+"tests/*.py" = ["F841"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

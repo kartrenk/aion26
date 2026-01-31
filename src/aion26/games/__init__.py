@@ -8,7 +8,11 @@ Available games:
 
 from aion26.games.kuhn import KuhnPoker, new_kuhn_game
 from aion26.games.leduc import LeducPoker
-from aion26.games.river_holdem import TexasHoldemRiver, new_river_holdem_game, new_river_holdem_with_cards
+from aion26.games.river_holdem import (
+    TexasHoldemRiver,
+    new_river_holdem_game,
+    new_river_holdem_with_cards,
+)
 
 __all__ = [
     "KuhnPoker",

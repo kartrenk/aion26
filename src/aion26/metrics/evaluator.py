@@ -10,11 +10,9 @@ Metrics:
 """
 
 import numpy as np
-from typing import Optional, Callable
 from dataclasses import dataclass
 
 from aion26.baselines import BaselineBot
-from aion26.cfr.regret_matching import regret_matching
 
 
 @dataclass
@@ -80,12 +78,7 @@ class HeadToHeadEvaluator:
         """
         self.big_blind = big_blind
 
-    def _get_action_from_strategy(
-        self,
-        state,
-        strategy: dict[str, np.ndarray],
-        player: int
-    ) -> int:
+    def _get_action_from_strategy(self, state, strategy: dict[str, np.ndarray], player: int) -> int:
         """Get action from learned strategy.
 
         Args:
@@ -115,7 +108,7 @@ class HeadToHeadEvaluator:
         initial_state,
         strategy: dict[str, np.ndarray],
         opponent: BaselineBot,
-        agent_is_p0: bool
+        agent_is_p0: bool,
     ) -> tuple[float, float]:
         """Play a single hand.
 
@@ -171,7 +164,7 @@ class HeadToHeadEvaluator:
         strategy: dict[str, np.ndarray],
         opponent: BaselineBot,
         num_hands: int = 1000,
-        alternate_positions: bool = True
+        alternate_positions: bool = True,
     ) -> HeadToHeadResult:
         """Evaluate learned strategy against baseline bot.
 
@@ -193,10 +186,7 @@ class HeadToHeadEvaluator:
 
             # Play hand
             agent_return, bot_return = self._play_single_hand(
-                initial_state,
-                strategy,
-                opponent,
-                agent_is_p0
+                initial_state, strategy, opponent, agent_is_p0
             )
 
             agent_winnings_list.append(agent_return)
@@ -226,7 +216,7 @@ class HeadToHeadEvaluator:
             bot_winnings=total_bot_winnings,
             avg_mbb_per_hand=avg_mbb_per_hand,
             std_error=std_error * 1000,  # Convert to mbb
-            confidence_95=confidence_95_mbb
+            confidence_95=confidence_95_mbb,
         )
 
     def evaluate_against_multiple(
@@ -234,7 +224,7 @@ class HeadToHeadEvaluator:
         initial_state,
         strategy: dict[str, np.ndarray],
         opponents: dict[str, BaselineBot],
-        num_hands: int = 1000
+        num_hands: int = 1000,
     ) -> dict[str, HeadToHeadResult]:
         """Evaluate against multiple baseline bots.
 
@@ -250,11 +240,6 @@ class HeadToHeadEvaluator:
         results = {}
 
         for name, bot in opponents.items():
-            results[name] = self.evaluate(
-                initial_state,
-                strategy,
-                bot,
-                num_hands
-            )
+            results[name] = self.evaluate(initial_state, strategy, bot, num_hands)
 
         return results

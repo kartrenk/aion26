@@ -7,7 +7,6 @@ the external sampling MCCFR implementation.
 Reference: Zinkevich et al. (2007) "Regret Minimization in Games with Incomplete Information"
 """
 
-from collections import defaultdict
 from typing import Protocol
 import numpy as np
 import numpy.typing as npt
@@ -132,7 +131,9 @@ class VanillaCFR_Exact:
             value = 0.0
             for action, probability in state.chance_outcomes():
                 next_state = state.apply_action(action)
-                value += probability * self.cfr(next_state, reach_prob_0, reach_prob_1, update_player)
+                value += probability * self.cfr(
+                    next_state, reach_prob_0, reach_prob_1, update_player
+                )
             return value
 
         # Player node

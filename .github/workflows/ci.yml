@@ -19,6 +19,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          cache-dependency-glob: uv.lock
 
       - run: uv sync --group dev
 
@@ -71,6 +72,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          cache-dependency-glob: uv.lock
 
       - uses: actions/download-artifact@v4
         with:
@@ -82,8 +84,13 @@ jobs:
           uv sync --group dev --extra deep
           uv pip install dist/*.whl
 
+      - name: Verify Rust extension
+        run: uv run python -c "import aion26_rust; print('aion26_rust OK')"
+
       - name: Unit tests
-        run: uv run pytest tests/ --ignore=tests/test_e2e -v --tb=short --junitxml=test-results.xml
+        run: >
+          uv run pytest tests/ --ignore=tests/test_e2e
+          -v --tb=short --junitxml=test-results.xml
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -101,6 +108,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          cache-dependency-glob: uv.lock
 
       - uses: actions/download-artifact@v4
         with:
@@ -112,8 +120,22 @@ jobs:
           uv sync --group dev --extra deep --extra e2e
           uv pip install dist/*.whl
 
+      - name: Verify Rust extension
+        run: uv run python -c "import aion26_rust; print('aion26_rust OK')"
+
+      - name: Verify webapp can start
+        run: |
+          uv run python -c "
+          import torch; print(f'torch {torch.__version__} OK')
+          import aion26_rust; print('aion26_rust OK')
+          from flask import Flask; print('flask OK')
+          "
+
       - name: Install Playwright browsers
         run: uv run playwright install chromium --with-deps
 
+      - name: Verify test collection
+        run: uv run pytest tests/test_e2e/ --collect-only -q
+
       - name: E2E tests
-        run: uv run pytest tests/test_e2e/ -v --tb=long
+        run: uv run pytest tests/test_e2e/ -v --tb=long -x

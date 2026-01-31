@@ -82,7 +82,9 @@ class TrainingThread(threading.Thread):
         self.metrics_queue = metrics_queue
         self.stop_event = stop_event or threading.Event()
         self.trainer: Optional[DeepCFRTrainer] = None
-        logger.info(f"TrainingThread created: game={config.game.name}, algo={config.algorithm.scheduler_type}, iters={config.training.iterations}")
+        logger.info(
+            f"TrainingThread created: game={config.game.name}, algo={config.algorithm.scheduler_type}, iters={config.training.iterations}"
+        )
 
     def _initialize_trainer(self):
         """Initialize the Deep CFR trainer based on config."""
@@ -125,20 +127,20 @@ class TrainingThread(threading.Thread):
                 beta=self.config.algorithm.beta,
             )
             strategy_scheduler = LinearScheduler()
-            logger.info(f"Using PDCFR scheduler (α={self.config.algorithm.alpha}, β={self.config.algorithm.beta})")
+            logger.info(
+                f"Using PDCFR scheduler (α={self.config.algorithm.alpha}, β={self.config.algorithm.beta})"
+            )
         elif self.config.algorithm.scheduler_type == "ddcfr":
             regret_scheduler = PDCFRScheduler(
                 alpha=self.config.algorithm.alpha,
                 beta=self.config.algorithm.beta,
             )
-            strategy_scheduler = DDCFRStrategyScheduler(
-                gamma=self.config.algorithm.gamma
+            strategy_scheduler = DDCFRStrategyScheduler(gamma=self.config.algorithm.gamma)
+            logger.info(
+                f"Using DDCFR scheduler (α={self.config.algorithm.alpha}, β={self.config.algorithm.beta}, γ={self.config.algorithm.gamma})"
             )
-            logger.info(f"Using DDCFR scheduler (α={self.config.algorithm.alpha}, β={self.config.algorithm.beta}, γ={self.config.algorithm.gamma})")
         else:
-            raise ValueError(
-                f"Unknown scheduler type: {self.config.algorithm.scheduler_type}"
-            )
+            raise ValueError(f"Unknown scheduler type: {self.config.algorithm.scheduler_type}")
 
         # Initialize trainer
         self.trainer = DeepCFRTrainer(
@@ -201,7 +203,9 @@ class TrainingThread(threading.Thread):
 
                 # Log progress every 10 iterations
                 if (i + 1) % 10 == 0:
-                    logger.debug(f"Iter {i+1}: loss={metrics['loss']:.4f}, buffer={metrics['buffer_size']}/{self.config.training.buffer_capacity}")
+                    logger.debug(
+                        f"Iter {i + 1}: loss={metrics['loss']:.4f}, buffer={metrics['buffer_size']}/{self.config.training.buffer_capacity}"
+                    )
 
                 # Compute NashConv periodically (skip for river_holdem - infeasible)
                 nash_conv = None
@@ -212,11 +216,13 @@ class TrainingThread(threading.Thread):
                     # Only compute NashConv for small games (Kuhn, Leduc)
                     # For River Hold'em, use head-to-head evaluation instead
                     if self.config.game.name in ["kuhn", "leduc"]:
-                        logger.info(f"Computing NashConv at iteration {i+1}...")
+                        logger.info(f"Computing NashConv at iteration {i + 1}...")
                         nash_conv = compute_nash_conv(self.trainer.initial_state, strategy)
-                        logger.info(f"NashConv at iteration {i+1}: {nash_conv:.6f}")
+                        logger.info(f"NashConv at iteration {i + 1}: {nash_conv:.6f}")
                     else:
-                        logger.info(f"Skipping NashConv for {self.config.game.name} (use head-to-head evaluation instead)")
+                        logger.info(
+                            f"Skipping NashConv for {self.config.game.name} (use head-to-head evaluation instead)"
+                        )
                         nash_conv = None
 
                 # Send metrics to GUI every iteration for real-time progress
@@ -244,7 +250,9 @@ class TrainingThread(threading.Thread):
                 final_nash_conv = compute_nash_conv(self.trainer.initial_state, final_strategy)
                 logger.info(f"Final NashConv: {final_nash_conv:.6f}")
             else:
-                logger.info(f"Skipping final NashConv for {self.config.game.name} (use head-to-head evaluation instead)")
+                logger.info(
+                    f"Skipping final NashConv for {self.config.game.name} (use head-to-head evaluation instead)"
+                )
                 final_nash_conv = None
             self.metrics_queue.put(
                 MetricsUpdate(

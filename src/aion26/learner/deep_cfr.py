@@ -16,11 +16,9 @@ Reference:
 """
 
 from typing import Protocol, Optional
-from collections import defaultdict
 import numpy as np
 import numpy.typing as npt
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import Adam
 
@@ -30,7 +28,6 @@ from aion26.cfr.regret_matching import regret_matching, sample_action
 from aion26.learner.discounting import (
     DiscountScheduler,
     PDCFRScheduler,
-    LinearScheduler,
     DDCFRStrategyScheduler,
 )
 
@@ -155,7 +152,7 @@ class DeepCFRTrainer:
             output_size=output_size,
             hidden_size=hidden_size,
             num_hidden_layers=num_hidden_layers,
-            zero_init_output=True  # Critical for PDCFR+ uniform exploration
+            zero_init_output=True,  # Critical for PDCFR+ uniform exploration
         ).to(self.device)
 
         self.target_net = DeepCFRNetwork(
@@ -163,7 +160,7 @@ class DeepCFRTrainer:
             output_size=output_size,
             hidden_size=hidden_size,
             num_hidden_layers=num_hidden_layers,
-            zero_init_output=True
+            zero_init_output=True,
         ).to(self.device)
 
         # Initialize target network with hard copy
@@ -186,7 +183,7 @@ class DeepCFRTrainer:
             capacity=buffer_capacity,
             input_shape=(input_size,),
             output_size=output_size,
-            device=device
+            device=device,
         )
 
         # Value buffer stores (state, actual_return) for baseline training
@@ -194,7 +191,7 @@ class DeepCFRTrainer:
             capacity=buffer_capacity,
             input_shape=(input_size,),
             output_size=1,  # Single value output
-            device=device
+            device=device,
         )
 
         # Average strategy tracking (tabular, for Nash convergence verification)
@@ -206,10 +203,7 @@ class DeepCFRTrainer:
         self.num_train_steps = 0
 
     def get_predicted_regrets(
-        self,
-        state: GameState,
-        player: Optional[int] = None,
-        use_target: bool = False
+        self, state: GameState, player: Optional[int] = None, use_target: bool = False
     ) -> torch.Tensor:
         """Get neural network predictions for regrets at a state.
 
@@ -240,9 +234,7 @@ class DeepCFRTrainer:
         return regrets.squeeze(0)  # Remove batch dimension
 
     def get_strategy(
-        self,
-        state: GameState,
-        player: Optional[int] = None
+        self, state: GameState, player: Optional[int] = None
     ) -> npt.NDArray[np.float64]:
         """Get current strategy using regret matching on network predictions.
 
@@ -323,8 +315,7 @@ class DeepCFRTrainer:
             # This baseline estimate reduces variance in regret updates
             state_encoding = self.encoder.encode(state, current_player)
             with torch.no_grad():
-                baseline_tensor = self.value_net(state_encoding.unsqueeze(0).to(self.device))
-                baseline = baseline_tensor.item()  # Scalar value
+                self.value_net(state_encoding.unsqueeze(0).to(self.device))
 
             # Compute value for each action
             action_values = np.zeros(num_legal, dtype=np.float64)
@@ -370,11 +361,7 @@ class DeepCFRTrainer:
             # Bootstrap target: combine instant regret with target network prediction
             # PDCFR+ uses dynamic discounting with separate weights for positive/negative regrets
             # y(I,a) = r_instant(I,a) + w_t(sign) × R_target(I,a)
-            target_regrets = self.get_predicted_regrets(
-                state,
-                current_player,
-                use_target=True
-            )
+            target_regrets = self.get_predicted_regrets(state, current_player, use_target=True)
             # Slice to only legal actions (matches instant_regrets size)
             target_regrets_np = target_regrets.cpu().numpy()[:num_legal]
 
@@ -384,11 +371,7 @@ class DeepCFRTrainer:
             w_negative = self.regret_scheduler.get_weight(max(1, self.iteration), "negative")
 
             # Create discount vector: w_pos where target > 0, w_neg otherwise
-            discount_vector = np.where(
-                target_regrets_np > 0,
-                w_positive,
-                w_negative
-            )
+            discount_vector = np.where(target_regrets_np > 0, w_positive, w_negative)
 
             # Bootstrap targets with dynamic discounting
             bootstrap_targets = weighted_regrets + discount_vector * target_regrets_np
@@ -571,20 +554,10 @@ class DeepCFRTrainer:
         self.iteration += 1
 
         # Traverse for player 0
-        self.traverse(
-            self.initial_state,
-            update_player=0,
-            reach_prob_0=1.0,
-            reach_prob_1=1.0
-        )
+        self.traverse(self.initial_state, update_player=0, reach_prob_0=1.0, reach_prob_1=1.0)
 
         # Traverse for player 1
-        self.traverse(
-            self.initial_state,
-            update_player=1,
-            reach_prob_0=1.0,
-            reach_prob_1=1.0
-        )
+        self.traverse(self.initial_state, update_player=1, reach_prob_0=1.0, reach_prob_1=1.0)
 
         # Training metrics
         metrics = {
@@ -592,7 +565,7 @@ class DeepCFRTrainer:
             "buffer_size": len(self.buffer),
             "buffer_fill_pct": self.buffer.fill_percentage,
             "loss": 0.0,
-            "value_loss": 0.0
+            "value_loss": 0.0,
         }
 
         # Train networks
@@ -632,21 +605,11 @@ class DeepCFRTrainer:
             self.iteration += 1
 
             # Traverse for player 0
-            self.traverse(
-                self.initial_state,
-                update_player=0,
-                reach_prob_0=1.0,
-                reach_prob_1=1.0
-            )
+            self.traverse(self.initial_state, update_player=0, reach_prob_0=1.0, reach_prob_1=1.0)
             samples_added += 1
 
             # Traverse for player 1
-            self.traverse(
-                self.initial_state,
-                update_player=1,
-                reach_prob_0=1.0,
-                reach_prob_1=1.0
-            )
+            self.traverse(self.initial_state, update_player=1, reach_prob_0=1.0, reach_prob_1=1.0)
             samples_added += 1
 
         return samples_added
@@ -667,7 +630,7 @@ class DeepCFRTrainer:
             "buffer_size": len(self.buffer),
             "buffer_fill_pct": self.buffer.fill_percentage,
             "loss": 0.0,
-            "value_loss": 0.0
+            "value_loss": 0.0,
         }
 
         # Train advantage network (regrets)
