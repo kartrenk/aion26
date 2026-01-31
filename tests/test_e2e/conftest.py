@@ -82,7 +82,7 @@ def webapp_server():
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def base_url(webapp_server):
-    """Return the webapp base URL for requests-based tests."""
+    """Return the webapp base URL for requests-based and Playwright tests."""
     return webapp_server
