@@ -84,6 +84,7 @@ from aion26.baselines import RandomBot, CallingStationBot, AlwaysFoldBot
 
 # Global game mode flag - set via CLI
 GAME_MODE = "river"  # "river" or "full"
+APP_START_TIME = time.time()
 
 def get_state_dim():
     return 220 if GAME_MODE == "full" else 136
@@ -2020,6 +2021,18 @@ def list_models_endpoint():
     except Exception as e:
         logger.error(f"Error listing models: {e}")
         return {'status': 'error', 'message': str(e)}, 500
+
+@app.route('/health')
+def health():
+    """Health check endpoint for CI and monitoring."""
+    return jsonify({
+        'status': 'ok',
+        'version': '0.1.0',
+        'training': state.running,
+        'epoch': state.epoch,
+        'game_mode': GAME_MODE,
+        'uptime_seconds': round(time.time() - APP_START_TIME, 1),
+    })
 
 def broadcast_state():
     socketio.emit('update', state.to_dict())

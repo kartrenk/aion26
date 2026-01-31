@@ -26,6 +26,11 @@ metrics = [
 openspiel = [
     "open-spiel>=1.6.11",
 ]
+e2e = [
+    "playwright>=1.49",
+    "pytest-playwright>=0.6",
+    "requests>=2.31",
+]
 
 [dependency-groups]
 dev = [
