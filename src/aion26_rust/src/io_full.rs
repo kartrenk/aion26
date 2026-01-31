@@ -1,44 +1,38 @@
 #![allow(dead_code)]
-/// Disk I/O for Deep CFR trajectory storage
+/// Disk I/O for Full HUNL Deep CFR trajectory storage
 ///
 /// This module provides efficient binary file I/O for storing and loading
-/// CFR trajectory data. Key features:
-/// - Zero-copy writes via direct byte casting
-/// - Buffered I/O for high throughput
-/// - Simple binary format (no parsing overhead)
+/// CFR trajectory data for the full multi-street game.
 ///
 /// File Format:
-/// - Each record: 560 bytes (136 × f32 state + 4 × f32 target)
+/// - Each record: 912 bytes (220 × f32 state + 8 × f32 target)
 /// - Files are named: epoch_{N}.bin
-/// - Number of samples = file_size / 560
+/// - Number of samples = file_size / 912
 
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write, Result, BufReader, Read};
 use std::path::Path;
 
-/// Size constants
-pub const STATE_DIM: usize = 136;
-pub const TARGET_DIM: usize = 4;
-const RECORD_SIZE: usize = (STATE_DIM + TARGET_DIM) * std::mem::size_of::<f32>();  // 560 bytes
+/// Size constants for Full HUNL
+pub const STATE_DIM: usize = 220;
+pub const TARGET_DIM: usize = 8;
+pub const RECORD_SIZE: usize = (STATE_DIM + TARGET_DIM) * std::mem::size_of::<f32>();  // 912 bytes
 
 /// Target normalization constant (Big Blind size)
-/// Dividing regrets by this makes loss values human-readable
 const TARGET_NORMALIZER: f32 = 100.0;
 
-/// Binary trajectory writer for disk-native Deep CFR
-///
-/// Writes (state, target) pairs to disk in a compact binary format.
-/// Uses buffered I/O for high throughput (1MB buffer).
-pub struct TrajectoryWriter {
+/// Binary trajectory writer for disk-native Deep CFR (Full HUNL)
+pub struct TrajectoryWriterFull {
     writer: BufWriter<File>,
     samples_written: usize,
+    path: String,
 }
 
-impl TrajectoryWriter {
+impl TrajectoryWriterFull {
     /// Create a new writer for the given path
-    ///
-    /// Creates or truncates the file at `path`.
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let path_str = path.as_ref().to_string_lossy().to_string();
+
         let file = OpenOptions::new()
             .create(true)
             .write(true)
@@ -48,24 +42,13 @@ impl TrajectoryWriter {
         Ok(Self {
             writer: BufWriter::with_capacity(1024 * 1024, file),  // 1MB buffer
             samples_written: 0,
+            path: path_str,
         })
     }
 
     /// Append a (state, target) pair to the file
-    ///
-    /// # Arguments
-    /// * `state` - 136-dimensional state encoding
-    /// * `target` - 4-dimensional regret target (in raw chips, will be normalized)
-    ///
-    /// # Safety
-    /// Uses unsafe byte casting for zero-copy performance.
-    /// This is safe because f32 has well-defined representation.
-    ///
-    /// # Note
-    /// Targets are normalized by dividing by 100.0 (Big Blind) before writing.
-    /// This makes loss values human-readable (typical range: 0.1 - 10.0 instead of 100-1000).
     pub fn append(&mut self, state: &[f32; STATE_DIM], target: &[f32; TARGET_DIM]) -> Result<()> {
-        // Write state (136 × 4 = 544 bytes)
+        // Write state (220 × 4 = 880 bytes)
         let state_bytes: &[u8] = unsafe {
             std::slice::from_raw_parts(
                 state.as_ptr() as *const u8,
@@ -75,14 +58,12 @@ impl TrajectoryWriter {
         self.writer.write_all(state_bytes)?;
 
         // Normalize targets to Big Blinds before writing
-        let normalized_target: [f32; TARGET_DIM] = [
-            target[0] / TARGET_NORMALIZER,
-            target[1] / TARGET_NORMALIZER,
-            target[2] / TARGET_NORMALIZER,
-            target[3] / TARGET_NORMALIZER,
-        ];
+        let mut normalized_target = [0.0f32; TARGET_DIM];
+        for i in 0..TARGET_DIM {
+            normalized_target[i] = target[i] / TARGET_NORMALIZER;
+        }
 
-        // Write normalized target (4 × 4 = 16 bytes)
+        // Write normalized target (8 × 4 = 32 bytes)
         let target_bytes: &[u8] = unsafe {
             std::slice::from_raw_parts(
                 normalized_target.as_ptr() as *const u8,
@@ -95,8 +76,7 @@ impl TrajectoryWriter {
         Ok(())
     }
 
-    /// Append from slices (for compatibility with variable-size inputs)
-    /// Note: Targets are normalized by dividing by 100.0 (Big Blind) before writing.
+    /// Append from slices
     pub fn append_slice(&mut self, state: &[f32], target: &[f32]) -> Result<()> {
         assert_eq!(state.len(), STATE_DIM, "State must have {} elements", STATE_DIM);
         assert_eq!(target.len(), TARGET_DIM, "Target must have {} elements", TARGET_DIM);
@@ -110,13 +90,11 @@ impl TrajectoryWriter {
         };
         self.writer.write_all(state_bytes)?;
 
-        // Normalize targets to Big Blinds before writing
-        let normalized_target: [f32; TARGET_DIM] = [
-            target[0] / TARGET_NORMALIZER,
-            target[1] / TARGET_NORMALIZER,
-            target[2] / TARGET_NORMALIZER,
-            target[3] / TARGET_NORMALIZER,
-        ];
+        // Normalize targets
+        let mut normalized_target = [0.0f32; TARGET_DIM];
+        for i in 0..TARGET_DIM {
+            normalized_target[i] = target[i] / TARGET_NORMALIZER;
+        }
 
         // Write normalized target
         let target_bytes: &[u8] = unsafe {
@@ -146,37 +124,37 @@ impl TrajectoryWriter {
         self.samples_written == 0
     }
 
+    /// Get the file path
+    pub fn path(&self) -> &str {
+        &self.path
+    }
 }
 
-impl Drop for TrajectoryWriter {
+impl Drop for TrajectoryWriterFull {
     fn drop(&mut self) {
         let _ = self.flush();
     }
 }
 
-/// Binary trajectory reader for loading samples
-///
-/// Provides random access to stored samples via memory mapping
-/// or sequential reads via buffered I/O.
-pub struct TrajectoryReader {
+/// Binary trajectory reader for Full HUNL
+pub struct TrajectoryReaderFull {
     reader: BufReader<File>,
     num_samples: usize,
     path: String,
 }
 
-impl TrajectoryReader {
+impl TrajectoryReaderFull {
     /// Open an existing trajectory file
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path_str = path.as_ref().to_string_lossy().to_string();
         let file = File::open(&path)?;
 
-        // Get file size to compute sample count
         let metadata = file.metadata()?;
         let file_size = metadata.len() as usize;
         let num_samples = file_size / RECORD_SIZE;
 
         Ok(Self {
-            reader: BufReader::with_capacity(1024 * 1024, file),  // 1MB buffer
+            reader: BufReader::with_capacity(1024 * 1024, file),
             num_samples,
             path: path_str,
         })
@@ -193,8 +171,6 @@ impl TrajectoryReader {
     }
 
     /// Read all samples into memory
-    ///
-    /// Returns (states, targets) as flattened vectors.
     pub fn read_all(&mut self) -> Result<(Vec<f32>, Vec<f32>)> {
         let mut states = vec![0.0f32; self.num_samples * STATE_DIM];
         let mut targets = vec![0.0f32; self.num_samples * TARGET_DIM];
@@ -237,56 +213,11 @@ impl TrajectoryReader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
 
     #[test]
-    fn test_write_read_roundtrip() {
-        let test_path = "/tmp/test_trajectory.bin";
-
-        // Write some samples
-        {
-            let mut writer = TrajectoryWriter::new(test_path).unwrap();
-
-            for i in 0..100 {
-                let mut state = [0.0f32; STATE_DIM];
-                let mut target = [0.0f32; TARGET_DIM];
-
-                // Fill with test data
-                state[0] = i as f32;
-                state[135] = (i * 2) as f32;
-                // Targets will be normalized by /100.0 when written
-                target[0] = (i * 10) as f32;
-                target[3] = (i * 20) as f32;
-
-                writer.append(&state, &target).unwrap();
-            }
-            writer.flush().unwrap();
-        }
-
-        // Read back and verify
-        {
-            let mut reader = TrajectoryReader::new(test_path).unwrap();
-            assert_eq!(reader.len(), 100);
-
-            let (states, targets) = reader.read_all().unwrap();
-
-            for i in 0..100 {
-                assert_eq!(states[i * STATE_DIM], i as f32);
-                assert_eq!(states[i * STATE_DIM + 135], (i * 2) as f32);
-                // Targets are normalized (divided by 100.0) when written
-                assert_eq!(targets[i * TARGET_DIM], (i * 10) as f32 / TARGET_NORMALIZER);
-                assert_eq!(targets[i * TARGET_DIM + 3], (i * 20) as f32 / TARGET_NORMALIZER);
-            }
-        }
-
-        // Cleanup
-        fs::remove_file(test_path).unwrap();
-    }
-
-    #[test]
-    fn test_record_size() {
+    fn test_record_size_full() {
         // Verify our size calculation is correct
-        assert_eq!(RECORD_SIZE, 560);
-        assert_eq!(STATE_DIM * 4 + TARGET_DIM * 4, 560);
+        assert_eq!(RECORD_SIZE, 912);
+        assert_eq!(STATE_DIM * 4 + TARGET_DIM * 4, 912);
     }
 }

@@ -1,7 +1,6 @@
-/// Parallel Deep CFR Trainer - Multi-threaded for high throughput
+/// Parallel Deep CFR Trainer for Full HUNL
 ///
-/// Simplified design: Each worker processes ONE traversal at a time.
-/// No interleaving = no parent index tracking issues.
+/// Multi-street traversal with 8 actions and 220-dim state encoding.
 
 use pyo3::prelude::*;
 use numpy::{PyArray2, PyArrayMethods};
@@ -12,20 +11,67 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::path::PathBuf;
 use rand::Rng;
 
-use crate::river::RustRiverHoldem;
+use crate::game_full::RustFullHoldem;
 use crate::evaluator::{evaluate_7_cards, get_hand_category};
-use crate::io::{TrajectoryWriter, STATE_DIM, TARGET_DIM};
+use crate::io_full::{TrajectoryWriterFull, STATE_DIM, TARGET_DIM};
 
 // ============================================================================
 // Configuration
 // ============================================================================
 
 const MIN_BATCH_SIZE: usize = 2048;
+
+/// Number of board texture buckets for flop abstraction
+const NUM_TEXTURE_BUCKETS: usize = 200;
+
+// ============================================================================
+// Board Texture Bucketing (Inline)
+// ============================================================================
+
+/// Compute board texture bucket ID from flop cards
+/// This is a fast inline computation that doesn't require precomputed K-Means
+/// Features: suit pattern, connectedness, high card strength, paired status
+fn compute_board_texture_bucket(board: &[u8]) -> usize {
+    if board.len() < 3 {
+        return 0;
+    }
+
+    let mut ranks: Vec<u8> = board.iter().take(3).map(|&c| c % 13).collect();
+    let suits: Vec<u8> = board.iter().take(3).map(|&c| c / 13).collect();
+
+    ranks.sort_by(|a, b| b.cmp(a)); // Descending
+
+    // Feature 1: Suit pattern (0-2)
+    let unique_suits: std::collections::HashSet<u8> = suits.iter().cloned().collect();
+    let suit_feature = match unique_suits.len() {
+        1 => 2,  // Monotone
+        2 => 1,  // Two-tone
+        _ => 0,  // Rainbow
+    };
+
+    // Feature 2: Connectedness (0-9)
+    let gap1 = (ranks[0] as i32 - ranks[1] as i32).abs() as usize;
+    let gap2 = (ranks[1] as i32 - ranks[2] as i32).abs() as usize;
+    let connected_feature = (10 - (gap1 + gap2).min(10)).min(9);
+
+    // Feature 3: High card (0-3)
+    let high_feature = (ranks[0] / 4).min(3) as usize;
+
+    // Feature 4: Paired (0-1)
+    let paired_feature = if ranks[0] == ranks[1] || ranks[1] == ranks[2] { 1 } else { 0 };
+
+    // Combine features into bucket ID
+    // suit(3) × connected(10) × high(4) × paired(2) = 240 combinations
+    // We'll mod to NUM_TEXTURE_BUCKETS
+    let bucket = suit_feature * 80 + connected_feature * 8 + high_feature * 2 + paired_feature;
+    bucket % NUM_TEXTURE_BUCKETS
+}
+
 // ============================================================================
 // Shared State
 // ============================================================================
 
-/// Thread-safe query buffer
+/// Thread-safe query buffer for 220-dim states
 struct SharedQueryBuffer {
     states: Mutex<Vec<f32>>,
     query_ids: Mutex<Vec<usize>>,
@@ -124,7 +170,7 @@ impl SharedPredictionCache {
 
 /// Thread-safe sample writer
 struct SharedWriter {
-    writer: Mutex<Option<TrajectoryWriter>>,
+    writer: Mutex<Option<TrajectoryWriterFull>>,
     samples_written: AtomicUsize,
 }
 
@@ -136,7 +182,7 @@ impl SharedWriter {
         }
     }
 
-    fn set_writer(&self, w: TrajectoryWriter) {
+    fn set_writer(&self, w: TrajectoryWriterFull) {
         *self.writer.lock() = Some(w);
     }
 
@@ -178,12 +224,12 @@ impl SharedWriter {
 }
 
 // ============================================================================
-// Traversal Context - Simple recursive CFR state
+// Traversal Context
 // ============================================================================
 
 #[derive(Clone)]
 struct TraversalFrame {
-    game_state: RustRiverHoldem,
+    game_state: RustFullHoldem,
     update_player: u8,
     reach_prob_0: f32,
     reach_prob_1: f32,
@@ -192,24 +238,30 @@ struct TraversalFrame {
     action_values: Vec<f32>,
     current_action: usize,
     is_update_player: bool,
-    chance_processed: bool,  // For chance nodes: have we spawned the child?
+    chance_processed: bool,
 }
 
 struct Worker {
     stack: Vec<TraversalFrame>,
     rng: rand::rngs::StdRng,
-    initial_game: RustRiverHoldem,
+    small_blind: f64,
+    big_blind: f64,
+    starting_stack: f64,
+    fixed_flop: Option<Vec<u8>>,  // If set, always use this flop
     completed: usize,
     target: usize,
     started: usize,
 }
 
 impl Worker {
-    fn new(initial_game: RustRiverHoldem) -> Self {
+    fn new(small_blind: f64, big_blind: f64, starting_stack: f64, fixed_flop: Option<Vec<u8>>) -> Self {
         Self {
-            stack: Vec::with_capacity(32),
+            stack: Vec::with_capacity(64),  // Deeper stack for multi-street
             rng: rand::SeedableRng::from_entropy(),
-            initial_game,
+            small_blind,
+            big_blind,
+            starting_stack,
+            fixed_flop,
             completed: 0,
             target: 0,
             started: 0,
@@ -227,6 +279,15 @@ impl Worker {
         self.completed >= self.target
     }
 
+    fn create_initial_game(&self) -> RustFullHoldem {
+        RustFullHoldem::new(
+            vec![self.starting_stack, self.starting_stack],
+            self.small_blind,
+            self.big_blind,
+            self.fixed_flop.clone(),
+        )
+    }
+
     fn start_traversal(&mut self) {
         if self.started >= self.target {
             return;
@@ -235,7 +296,7 @@ impl Worker {
         let update_player = (self.started % 2) as u8;
 
         self.stack.push(TraversalFrame {
-            game_state: self.initial_game.clone(),
+            game_state: self.create_initial_game(),
             update_player,
             reach_prob_0: 1.0,
             reach_prob_1: 1.0,
@@ -329,7 +390,7 @@ impl Worker {
             }
         }
 
-        // Have strategy, explore actions - extract all data we need first
+        // Have strategy, explore actions
         let strategy = frame.strategy.as_ref().unwrap().clone();
         let legal_actions = frame.game_state.legal_actions();
         let num_actions = legal_actions.len();
@@ -347,7 +408,7 @@ impl Worker {
                 let frame = self.stack.last_mut().unwrap();
                 let next_state = frame.game_state.apply_action(action).expect("Action failed");
 
-                let prob = strategy.get(current_action).copied().unwrap_or(0.25);
+                let prob = strategy.get(current_action).copied().unwrap_or(1.0 / num_actions as f32);
                 let new_reach_0 = if current_player == 0 { reach_0 * prob } else { reach_0 };
                 let new_reach_1 = if current_player == 1 { reach_1 * prob } else { reach_1 };
 
@@ -372,14 +433,11 @@ impl Worker {
                     .map(|(p, v)| p * v)
                     .sum();
 
-                // Write regret sample
-                // CRITICAL FIX: Write regrets at correct action indices
-                // action_values[i] corresponds to legal_actions[i], not index i
+                // Write regret sample (8 actions)
                 let mut regrets = vec![0.0f32; TARGET_DIM];
                 for (i, &av) in frame.action_values.iter().enumerate() {
-                    let action_idx = legal_actions[i] as usize;  // Use actual action index
-                    if action_idx < TARGET_DIM {
-                        regrets[action_idx] = av - ev;
+                    if i < TARGET_DIM {
+                        regrets[i] = av - ev;
                     }
                 }
 
@@ -403,11 +461,11 @@ impl Worker {
                 let action = legal_actions[sampled_idx];
                 let next_state = frame.game_state.apply_action(action).expect("Action failed");
 
-                let prob = strategy.get(sampled_idx).copied().unwrap_or(0.25);
+                let prob = strategy.get(sampled_idx).copied().unwrap_or(1.0 / num_actions as f32);
                 let new_reach_0 = if current_player == 0 { reach_0 * prob } else { reach_0 };
                 let new_reach_1 = if current_player == 1 { reach_1 * prob } else { reach_1 };
 
-                // Mark that we've "explored" by setting current_action past the end
+                // Mark that we've "explored"
                 frame.current_action = num_actions;
 
                 self.stack.push(TraversalFrame {
@@ -424,8 +482,7 @@ impl Worker {
                 });
                 return true;
             } else {
-                // Opponent's child returned, propagate value up
-                // Get the child's value from action_values (there should be one value)
+                // Opponent's child returned, propagate value
                 let frame = self.stack.last().unwrap();
                 let value = frame.action_values.first().copied().unwrap_or(0.0);
                 return self.pop_with_value(value, writer);
@@ -451,7 +508,7 @@ impl Worker {
             }
             parent.current_action += 1;
         } else {
-            // Opponent: store value in action_values for later retrieval
+            // Opponent: store value
             if parent.action_values.is_empty() {
                 parent.action_values.push(value);
             } else {
@@ -476,12 +533,13 @@ impl Worker {
 }
 
 // ============================================================================
-// State Encoder
+// State Encoder (220 dims)
 // ============================================================================
 
 /// Canonicalize suits for isomorphic state representation.
 /// Maps suits to canonical form (0,1,2,3) based on order of first appearance.
 /// This is a LOSSLESS compression - Ah Kh 2s becomes equivalent to Ad Kd 2c.
+/// Reduces the effective state space by ~12.5x for flops.
 fn canonicalize_suits(cards: &[u8]) -> [i8; 4] {
     let mut suit_map: [i8; 4] = [-1, -1, -1, -1];
     let mut next_canonical_suit: i8 = 0;
@@ -505,7 +563,7 @@ fn canonicalize_suits(cards: &[u8]) -> [i8; 4] {
     suit_map
 }
 
-fn encode_state(state: &RustRiverHoldem, player: u8) -> Vec<f32> {
+fn encode_state(state: &RustFullHoldem, player: u8) -> Vec<f32> {
     let mut features = vec![0.0; STATE_DIM];
 
     if !state.is_dealt {
@@ -514,22 +572,30 @@ fn encode_state(state: &RustRiverHoldem, player: u8) -> Vec<f32> {
 
     let hand = &state.hands[player as usize];
     let board = &state.board;
+    let street = state.street;
 
     // SUIT ISOMORPHISM: Build canonical suit mapping from all visible cards
+    // Order: player's hole cards first, then board cards
+    // This ensures Ah Kh on As Ks 2d is same as Ad Kd on Ah Kh 2c
     let all_cards: Vec<u8> = hand.iter().chain(board.iter()).cloned().collect();
     let suit_map = canonicalize_suits(&all_cards);
 
-    // 1. Hand rank category (10 dims) - uses actual suits for flush detection
-    let seven_cards: Vec<u8> = hand.iter().chain(board.iter()).cloned().collect();
-    if seven_cards.len() == 7 {
-        let rank = evaluate_7_cards(&seven_cards.try_into().unwrap());
-        let category = get_hand_category(rank) as usize;
-        if category < 10 {
-            features[category] = 1.0;
+    // 1. Hand rank category (10 dims) - only on river
+    // NOTE: Hand evaluation uses actual suits (flush detection) - this is correct
+    // because we only canonicalize the ENCODING, not the game logic
+    if board.len() >= 5 {
+        let seven_cards: Vec<u8> = hand.iter().chain(board.iter().take(5)).cloned().collect();
+        if seven_cards.len() == 7 {
+            let rank = evaluate_7_cards(&seven_cards.try_into().unwrap());
+            let category = get_hand_category(rank) as usize;
+            if category < 10 {
+                features[category] = 1.0;
+            }
         }
     }
 
-    // 2. Hole cards (34 dims) - use CANONICAL suits
+    // 2. Hole cards (34 dims): indices 10-43
+    // Use CANONICAL suits for encoding
     for (i, &card) in hand.iter().enumerate().take(2) {
         let offset = 10 + i * 17;
         let rank = (card % 13) as usize;
@@ -539,9 +605,10 @@ fn encode_state(state: &RustRiverHoldem, player: u8) -> Vec<f32> {
         if canonical_suit < 4 { features[offset + 13 + canonical_suit] = 1.0; }
     }
 
-    // 3. Board cards (85 dims) - use CANONICAL suits
+    // 3. Board cards (85 dims): indices 44-128
+    // Use CANONICAL suits for encoding
     for (i, &card) in board.iter().enumerate().take(5) {
-        let offset = 10 + 34 + i * 17;
+        let offset = 44 + i * 17;
         let rank = (card % 13) as usize;
         let actual_suit = (card / 13) as usize;
         let canonical_suit = suit_map[actual_suit] as usize;
@@ -549,26 +616,77 @@ fn encode_state(state: &RustRiverHoldem, player: u8) -> Vec<f32> {
         if canonical_suit < 4 { features[offset + 13 + canonical_suit] = 1.0; }
     }
 
-    // 4. Betting context (7 dims) - using dynamic normalization
-    let ctx_offset = 10 + 34 + 85;
+    // 4. Street one-hot (4 dims): indices 129-132
+    let street_idx = (street as usize).min(3);
+    features[129 + street_idx] = 1.0;
+
+    // 5. Action history (64 dims): indices 133-196
+    // Last 8 actions, each encoded as 8-dim one-hot
+    let action_hist = state.get_action_history();
+    let hist_len = action_hist.len();
+    let start = if hist_len > 8 { hist_len - 8 } else { 0 };
+
+    for (slot, &action) in action_hist[start..].iter().enumerate() {
+        if slot < 8 {
+            let offset = 133 + slot * 8;
+            let action_idx = (action as usize).min(7);
+            features[offset + action_idx] = 1.0;
+        }
+    }
+
+    // 6. Betting context (23 dims): indices 197-219
+    let ctx_offset = 197;
 
     // CRITICAL FIX: Use dynamic normalization based on total money in play
-    // This ensures features are scale-invariant and consistent between training/inference
-    let total_money = (state.stacks[0] + state.stacks[1] + state.pot) as f32;
-    let normalizer = if total_money > 0.0 { total_money } else { 1.0 };
+    // This ensures features are scale-invariant and consistent with Python inference
+    let total_money = state.stacks[0] + state.stacks[1] + state.pot;
+    let normalizer = if total_money > 0.0 { total_money as f32 } else { 1.0 };
 
+    // Pot (normalized by total money)
     features[ctx_offset] = state.pot as f32 / normalizer;
+
+    // Player stacks (2 dims)
     features[ctx_offset + 1] = state.stacks[0] as f32 / normalizer;
     features[ctx_offset + 2] = state.stacks[1] as f32 / normalizer;
-    features[ctx_offset + 3] = state.current_bet as f32 / normalizer;
-    features[ctx_offset + 4] = state.player_0_invested as f32 / normalizer;
-    features[ctx_offset + 5] = state.player_1_invested as f32 / normalizer;
 
-    let invested = if player == 0 { state.player_0_invested } else { state.player_1_invested };
+    // Current bet (1 dim)
+    features[ctx_offset + 3] = state.current_bet as f32 / normalizer;
+
+    // Invested this street (2 dims)
+    features[ctx_offset + 4] = state.invested_street[0] as f32 / normalizer;
+    features[ctx_offset + 5] = state.invested_street[1] as f32 / normalizer;
+
+    // Invested total (2 dims)
+    features[ctx_offset + 6] = state.invested_total[0] as f32 / normalizer;
+    features[ctx_offset + 7] = state.invested_total[1] as f32 / normalizer;
+
+    // Pot odds
+    let invested = state.invested_street[player as usize];
     let to_call = (state.current_bet - invested).max(0.0);
     let pot_after = state.pot + to_call;
     let pot_odds = if pot_after > 0.0 { to_call / pot_after } else { 0.0 };
-    features[ctx_offset + 6] = pot_odds as f32;
+    features[ctx_offset + 8] = pot_odds as f32;
+
+    // Stack-to-pot ratio
+    let my_stack = state.stacks[player as usize];
+    let spr = if state.pot > 0.0 { my_stack / state.pot } else { 10.0 };
+    features[ctx_offset + 9] = (spr as f32 / 10.0).min(1.0);
+
+    // Position indicator (1 dim)
+    features[ctx_offset + 10] = if player == 0 { 1.0 } else { 0.0 };
+
+    // Actions this street
+    features[ctx_offset + 11] = (state.actions_this_street as f32 / 10.0).min(1.0);
+
+    // FLOP ABSTRACTION: Board texture bucket (normalized 0-1)
+    // This provides the network with a compressed representation of board texture
+    // that groups strategically similar flops together
+    if board.len() >= 3 {
+        let texture_bucket = compute_board_texture_bucket(board);
+        features[ctx_offset + 12] = texture_bucket as f32 / NUM_TEXTURE_BUCKETS as f32;
+    }
+
+    // Remaining dims (13-22) still reserved for future use
 
     features
 }
@@ -603,7 +721,7 @@ fn regret_matching(advantages: &[f32]) -> Vec<f32> {
 // ============================================================================
 
 #[pyclass]
-pub struct StepResultPar {
+pub struct StepResultFull {
     request_inference: bool,
     finished: bool,
     count: usize,
@@ -611,7 +729,7 @@ pub struct StepResultPar {
 }
 
 #[pymethods]
-impl StepResultPar {
+impl StepResultFull {
     pub fn is_request_inference(&self) -> bool {
         self.request_inference
     }
@@ -630,7 +748,7 @@ impl StepResultPar {
 }
 
 #[pyclass]
-pub struct ParallelTrainer {
+pub struct ParallelTrainerFull {
     workers: Vec<Worker>,
     query_buffer: Arc<SharedQueryBuffer>,
     prediction_cache: Arc<SharedPredictionCache>,
@@ -640,28 +758,35 @@ pub struct ParallelTrainer {
 }
 
 #[pymethods]
-impl ParallelTrainer {
+impl ParallelTrainerFull {
     #[new]
-    #[pyo3(signature = (data_dir, query_buffer_size = 4096, num_workers = 8, fixed_board = None))]
+    #[pyo3(signature = (
+        data_dir,
+        query_buffer_size = 4096,
+        num_workers = 8,
+        small_blind = 0.5,
+        big_blind = 1.0,
+        starting_stack = 100.0,
+        fixed_flop = None
+    ))]
     pub fn new(
         data_dir: String,
         query_buffer_size: usize,
         num_workers: usize,
-        fixed_board: Option<Vec<u8>>,
+        small_blind: f64,
+        big_blind: f64,
+        starting_stack: f64,
+        fixed_flop: Option<Vec<u8>>,
     ) -> PyResult<Self> {
         let path = PathBuf::from(&data_dir);
         std::fs::create_dir_all(&path).map_err(|e| {
             PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to create dir: {}", e))
         })?;
 
-        // If fixed_board provided, all training will use this board
-        // This is useful for debugging or training on a single flop
-        let initial_game = RustRiverHoldem::new(
-            vec![100.0, 100.0], 2.0, 0.0, 1.0, 1.0, fixed_board,
-        );
-
+        // If fixed_flop provided, all training will use this flop (3 cards)
+        // Turn and river will still be random
         let workers: Vec<Worker> = (0..num_workers)
-            .map(|_id| Worker::new(initial_game.clone()))
+            .map(|_id| Worker::new(small_blind, big_blind, starting_stack, fixed_flop.clone()))
             .collect();
 
         Ok(Self {
@@ -679,7 +804,7 @@ impl ParallelTrainer {
         self.current_epoch = epoch;
 
         let epoch_path = self.data_dir.join(format!("epoch_{}.bin", epoch));
-        let w = TrajectoryWriter::new(&epoch_path).map_err(|e| {
+        let w = TrajectoryWriterFull::new(&epoch_path).map_err(|e| {
             PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to create file: {}", e))
         })?;
         self.writer.set_writer(w);
@@ -698,7 +823,7 @@ impl ParallelTrainer {
         &mut self,
         inference_results: Option<&Bound<'_, PyArray2<f32>>>,
         num_traversals: Option<usize>,
-    ) -> PyResult<StepResultPar> {
+    ) -> PyResult<StepResultFull> {
         // Initialize workers with targets
         if let Some(n) = num_traversals {
             let per_worker = n / self.workers.len();
@@ -738,7 +863,7 @@ impl ParallelTrainer {
             // Check if all workers are done
             let all_done = self.workers.iter().all(|w| w.is_done());
             if all_done {
-                return Ok(StepResultPar {
+                return Ok(StepResultFull {
                     request_inference: false,
                     finished: true,
                     count: 0,
@@ -756,7 +881,6 @@ impl ParallelTrainer {
                             break;
                         }
                         if !worker.step(qb, pc, writer) {
-                            // Blocked on inference
                             break;
                         }
                         iterations += 1;
@@ -772,7 +896,7 @@ impl ParallelTrainer {
             // Check if batch is ready
             let count = qb.count();
             if count >= MIN_BATCH_SIZE {
-                return Ok(StepResultPar {
+                return Ok(StepResultFull {
                     request_inference: true,
                     finished: false,
                     count,
@@ -782,7 +906,7 @@ impl ParallelTrainer {
 
             // If any queries pending, return for inference
             if count > 0 {
-                return Ok(StepResultPar {
+                return Ok(StepResultFull {
                     request_inference: true,
                     finished: false,
                     count,
@@ -793,7 +917,7 @@ impl ParallelTrainer {
             // Check again if all done
             let all_done = self.workers.iter().all(|w| w.is_done());
             if all_done {
-                return Ok(StepResultPar {
+                return Ok(StepResultFull {
                     request_inference: false,
                     finished: true,
                     count: 0,
@@ -824,8 +948,13 @@ impl ParallelTrainer {
         self.workers.len()
     }
 
-    /// Returns debug info: list of (started, completed, stack_size) per worker
+    /// Returns debug info
     pub fn debug_workers(&self) -> Vec<(usize, usize, usize)> {
         self.workers.iter().map(|w| (w.started, w.completed, w.stack.len())).collect()
+    }
+
+    /// Get state and target dimensions
+    pub fn get_dimensions(&self) -> (usize, usize) {
+        (STATE_DIM, TARGET_DIM)
     }
 }

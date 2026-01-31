@@ -3,25 +3,28 @@ name = "aion26"
 version = "0.1.0"
 description = "Deep PDCFR+ framework for imperfect information games"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "flask>=3.1.2",
     "flask-socketio>=5.6.0",
     "numpy>=2.4.0",
-    "open-spiel>=1.6.11",
     "pyyaml>=6.0",
+    "rich>=14.0.0",
     "scipy>=1.16.3",
-    "torch>=2.9.1",
     "treys>=0.1.8",
+    "typer>=0.15.0",
 ]
 
 [project.optional-dependencies]
 deep = [
-    "torch>=2.9.1",
+    "torch>=2.6.0",
 ]
 metrics = [
     "matplotlib>=3.10.8",
     "wandb>=0.23.1",
+]
+openspiel = [
+    "open-spiel>=1.6.11",
 ]
 
 [dependency-groups]

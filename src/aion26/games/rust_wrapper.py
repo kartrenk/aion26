@@ -12,7 +12,6 @@ try:
     RUST_AVAILABLE = True
 except ImportError:
     RUST_AVAILABLE = False
-    print("WARNING: aion26_rust not available. Install with: uv pip install --editable src/aion26_rust")
 
 
 class RustRiverWrapper:

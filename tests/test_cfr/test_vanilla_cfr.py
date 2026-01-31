@@ -29,19 +29,27 @@ class TestRegretMatching:
         np.testing.assert_array_almost_equal(strategy, expected)
 
     def test_regret_matching_all_negative(self):
-        """Test regret matching with all negative regrets."""
+        """Test regret matching with all negative regrets.
+
+        When all regrets are negative, we use argmax to pick the "least bad"
+        action rather than uniform random. This prevents suicidal bluffs with
+        trash hands during early training.
+        """
         regrets = np.array([-1.0, -2.0, -3.0])
         strategy = regret_matching(regrets)
-        # Should return uniform strategy
-        expected = np.array([1.0, 1.0, 1.0]) / 3.0
+        # Should pick action with highest (least negative) regret
+        expected = np.array([1.0, 0.0, 0.0])  # -1.0 is the highest
         np.testing.assert_array_almost_equal(strategy, expected)
 
     def test_regret_matching_zeros(self):
-        """Test regret matching with all zeros."""
+        """Test regret matching with all zeros.
+
+        When all regrets are zero, argmax picks the first action.
+        """
         regrets = np.array([0.0, 0.0, 0.0])
         strategy = regret_matching(regrets)
-        # Should return uniform strategy
-        expected = np.array([1.0, 1.0, 1.0]) / 3.0
+        # argmax on ties returns first index
+        expected = np.array([1.0, 0.0, 0.0])
         np.testing.assert_array_almost_equal(strategy, expected)
 
 
@@ -82,12 +90,15 @@ class TestVanillaCFRBasics:
         assert len(solver.strategy_sum) == 0
 
     def test_get_strategy_initial(self):
-        """Test getting strategy for unvisited information state."""
+        """Test getting strategy for unvisited information state.
+
+        With argmax fallback, unvisited states (zero regrets) pick the first action.
+        """
         game = new_kuhn_game()
         solver = VanillaCFR(game, seed=42)
-        # Unvisited state should have uniform strategy
+        # Unvisited state with zero regrets -> argmax picks first action
         strategy = solver.get_strategy("J")
-        expected = np.array([0.5, 0.5])  # Uniform over 2 actions
+        expected = np.array([1.0, 0.0])  # First action (check) selected
         np.testing.assert_array_almost_equal(strategy, expected)
 
     def test_run_iteration(self):

@@ -2,7 +2,8 @@
 
 These simple heuristic agents provide baselines to evaluate Deep CFR performance:
 - RandomBot: Uniform random policy
-- CallingStation: Always calls/checks (passive)
+- CallingStationBot: Always calls/checks (passive)
+- AlwaysFoldBot: Always folds when possible (very weak)
 - HonestBot: Bets based on hand strength (exploitable but reasonable)
 
 Used for head-to-head evaluation when NashConv is computationally infeasible
@@ -80,7 +81,7 @@ class RandomBot(BaselineBot):
         return "RandomBot()"
 
 
-class CallingStation(BaselineBot):
+class CallingStationBot(BaselineBot):
     """Bot that always checks/calls unless forced to fold.
 
     This is a passive baseline that never bluffs or value bets.
@@ -92,7 +93,7 @@ class CallingStation(BaselineBot):
     3. Random otherwise (shouldn't happen in well-designed games)
 
     Example:
-        bot = CallingStation()
+        bot = CallingStationBot()
         action = bot.get_action(state)  # Always tries to call/check
     """
 
@@ -125,7 +126,59 @@ class CallingStation(BaselineBot):
         return legal[0]
 
     def __repr__(self) -> str:
-        return "CallingStation()"
+        return "CallingStationBot()"
+
+
+class CallingStation(CallingStationBot):
+    """Alias for CallingStationBot (backwards compatibility)."""
+    pass
+
+
+class AlwaysFoldBot(BaselineBot):
+    """Bot that always folds when possible (weakest baseline).
+
+    This is the absolute weakest strategy - will lose money constantly.
+    Only useful as a sanity check (learned agent should dominate).
+
+    Action priority:
+    1. Fold if available
+    2. Check if must (facing no bet)
+    3. Random otherwise
+
+    Example:
+        bot = AlwaysFoldBot()
+        action = bot.get_action(state)  # Always folds
+    """
+
+    def get_action(self, state: GameState) -> int:
+        """Always fold if possible.
+
+        Args:
+            state: Current game state
+
+        Returns:
+            Fold action (0) if available, else check/call
+        """
+        legal = state.legal_actions()
+        if not legal:
+            raise ValueError("No legal actions available")
+
+        FOLD = 0
+        CHECK_CALL = 1
+
+        # Always fold if available
+        if FOLD in legal:
+            return FOLD
+
+        # If can't fold, must check (facing no bet)
+        if CHECK_CALL in legal:
+            return CHECK_CALL
+
+        # Fallback
+        return legal[0]
+
+    def __repr__(self) -> str:
+        return "AlwaysFoldBot()"
 
 
 class HonestBot(BaselineBot):
@@ -148,7 +201,7 @@ class HonestBot(BaselineBot):
     - Predictable (strength-based only)
     - Doesn't adjust to opponent
 
-    But still stronger than RandomBot or CallingStation.
+    But still stronger than RandomBot or CallingStationBot.
 
     Example:
         bot = HonestBot()
@@ -275,7 +328,7 @@ def create_bot(name: str) -> BaselineBot:
     """Create a baseline bot by name.
 
     Args:
-        name: Bot name ("random", "calling_station", "honest")
+        name: Bot name ("random", "calling_station", "honest", "always_fold")
 
     Returns:
         Baseline bot instance
@@ -288,11 +341,13 @@ def create_bot(name: str) -> BaselineBot:
     if name == "random":
         return RandomBot()
     elif name in ["calling_station", "callingstation", "calling"]:
-        return CallingStation()
+        return CallingStationBot()
+    elif name in ["always_fold", "alwaysfold", "fold"]:
+        return AlwaysFoldBot()
     elif name in ["honest", "honest_bot"]:
         return HonestBot()
     else:
         raise ValueError(
             f"Unknown bot name: {name}. "
-            f"Available: random, calling_station, honest"
+            f"Available: random, calling_station, always_fold, honest"
         )

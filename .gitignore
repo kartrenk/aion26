@@ -58,6 +58,9 @@ plots/*.png
 wandb/
 checkpoints/
 
+# Archives (never commit large binary archives)
+*.zip
+
 # Logs
 *.log
 

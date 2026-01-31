@@ -19,7 +19,7 @@ class TestReservoirBufferBasics:
 
     def test_initialization(self):
         """Test buffer initializes with correct parameters."""
-        buffer = ReservoirBuffer(capacity=100, input_shape=(10,))
+        buffer = ReservoirBuffer(capacity=100, input_shape=(10,), output_size=2)
 
         assert buffer.capacity == 100
         assert buffer.input_shape == (10,)
@@ -38,7 +38,7 @@ class TestReservoirBufferBasics:
 
     def test_add_single_sample(self):
         """Test adding a single sample to buffer."""
-        buffer = ReservoirBuffer(capacity=10, input_shape=(5,))
+        buffer = ReservoirBuffer(capacity=10, input_shape=(5,), output_size=2)
 
         state = torch.randn(5)
         target = torch.randn(2)
@@ -50,7 +50,7 @@ class TestReservoirBufferBasics:
 
     def test_add_wrong_shape_raises_error(self):
         """Test that adding wrong-shaped state raises error."""
-        buffer = ReservoirBuffer(capacity=10, input_shape=(5,))
+        buffer = ReservoirBuffer(capacity=10, input_shape=(5,), output_size=2)
 
         state = torch.randn(10)  # Wrong shape!
         target = torch.randn(2)
@@ -60,7 +60,7 @@ class TestReservoirBufferBasics:
 
     def test_repr(self):
         """Test string representation."""
-        buffer = ReservoirBuffer(capacity=100, input_shape=(10,))
+        buffer = ReservoirBuffer(capacity=100, input_shape=(10,), output_size=2)
         buffer.add(torch.randn(10), torch.randn(2))
 
         repr_str = repr(buffer)
@@ -71,7 +71,7 @@ class TestReservoirBufferBasics:
 
     def test_clear(self):
         """Test clearing buffer."""
-        buffer = ReservoirBuffer(capacity=10, input_shape=(5,))
+        buffer = ReservoirBuffer(capacity=10, input_shape=(5,), output_size=2)
 
         # Add some samples
         for _ in range(5):
@@ -89,7 +89,7 @@ class TestReservoirBufferBasics:
 
     def test_is_full_property(self):
         """Test is_full property."""
-        buffer = ReservoirBuffer(capacity=3, input_shape=(5,))
+        buffer = ReservoirBuffer(capacity=3, input_shape=(5,), output_size=2)
 
         assert not buffer.is_full
 
@@ -104,7 +104,7 @@ class TestReservoirBufferBasics:
 
     def test_fill_percentage(self):
         """Test fill percentage calculation."""
-        buffer = ReservoirBuffer(capacity=10, input_shape=(5,))
+        buffer = ReservoirBuffer(capacity=10, input_shape=(5,), output_size=2)
 
         assert buffer.fill_percentage == 0.0
 
@@ -120,7 +120,7 @@ class TestReservoirCapacityLimit:
     def test_capacity_limit_exact_capacity(self):
         """Test that buffer respects capacity when filled exactly."""
         capacity = 10
-        buffer = ReservoirBuffer(capacity=capacity, input_shape=(5,))
+        buffer = ReservoirBuffer(capacity=capacity, input_shape=(5,), output_size=2)
 
         # Add exactly capacity samples
         for i in range(capacity):
@@ -137,7 +137,7 @@ class TestReservoirCapacityLimit:
         """
         capacity = 10
         n_samples = 100
-        buffer = ReservoirBuffer(capacity=capacity, input_shape=(5,))
+        buffer = ReservoirBuffer(capacity=capacity, input_shape=(5,), output_size=2)
 
         # Add 100 samples
         for i in range(n_samples):
@@ -154,7 +154,7 @@ class TestReservoirCapacityLimit:
         """Test capacity limit with much larger overflow."""
         capacity = 50
         n_samples = 10000
-        buffer = ReservoirBuffer(capacity=capacity, input_shape=(10,))
+        buffer = ReservoirBuffer(capacity=capacity, input_shape=(10,), output_size=2)
 
         for i in range(n_samples):
             buffer.add(torch.randn(10), torch.randn(2))
@@ -177,7 +177,7 @@ class TestReservoirUniformity:
 
         capacity = 10
         n_samples = 100
-        buffer = ReservoirBuffer(capacity=capacity, input_shape=(1,))
+        buffer = ReservoirBuffer(capacity=capacity, input_shape=(1,), output_size=1)
 
         # Add samples 0 to 99 (encoded as tensors)
         for i in range(n_samples):
@@ -219,7 +219,7 @@ class TestReservoirUniformity:
 
         capacity = 1000
         n_samples = 10000
-        buffer = ReservoirBuffer(capacity=capacity, input_shape=(1,))
+        buffer = ReservoirBuffer(capacity=capacity, input_shape=(1,), output_size=1)
 
         print(f"\n  Adding {n_samples} samples to buffer of size {capacity}...")
 
@@ -307,7 +307,7 @@ class TestReservoirUniformity:
         n_samples = 5000
         n_bins = 10
 
-        buffer = ReservoirBuffer(capacity=capacity, input_shape=(1,))
+        buffer = ReservoirBuffer(capacity=capacity, input_shape=(1,), output_size=1)
 
         # Add samples
         for i in range(n_samples):
@@ -351,7 +351,7 @@ class TestReservoirTensorIntegrity:
 
     def test_tensor_values_preserved(self):
         """Test that tensor values are preserved exactly."""
-        buffer = ReservoirBuffer(capacity=10, input_shape=(5,))
+        buffer = ReservoirBuffer(capacity=10, input_shape=(5,), output_size=2)
 
         # Create specific tensor with known values
         original_state = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0])
@@ -369,7 +369,7 @@ class TestReservoirTensorIntegrity:
 
     def test_tensor_shape_preserved(self):
         """Test that tensor shapes are preserved."""
-        buffer = ReservoirBuffer(capacity=10, input_shape=(3, 4))
+        buffer = ReservoirBuffer(capacity=10, input_shape=(3, 4), output_size=2)
 
         # Create 2D tensor
         state = torch.randn(3, 4)
@@ -384,7 +384,7 @@ class TestReservoirTensorIntegrity:
 
     def test_tensor_dtype_preserved(self):
         """Test that tensor dtypes are preserved."""
-        buffer = ReservoirBuffer(capacity=10, input_shape=(5,))
+        buffer = ReservoirBuffer(capacity=10, input_shape=(5,), output_size=2)
 
         # Float32
         state_f32 = torch.randn(5, dtype=torch.float32)
@@ -399,7 +399,7 @@ class TestReservoirTensorIntegrity:
 
     def test_tensor_no_precision_loss(self):
         """Test that high-precision values are preserved."""
-        buffer = ReservoirBuffer(capacity=10, input_shape=(3,))
+        buffer = ReservoirBuffer(capacity=10, input_shape=(3,), output_size=1)
 
         # Use very specific floating point values
         original_state = torch.tensor([
@@ -419,7 +419,7 @@ class TestReservoirTensorIntegrity:
 
     def test_multiple_samples_integrity(self):
         """Test integrity when sampling multiple items."""
-        buffer = ReservoirBuffer(capacity=100, input_shape=(10,))
+        buffer = ReservoirBuffer(capacity=100, input_shape=(10,), output_size=1)
 
         # Add 100 unique samples
         originals = []
@@ -449,14 +449,14 @@ class TestReservoirSampling:
 
     def test_sample_empty_buffer_raises_error(self):
         """Test that sampling from empty buffer raises error."""
-        buffer = ReservoirBuffer(capacity=10, input_shape=(5,))
+        buffer = ReservoirBuffer(capacity=10, input_shape=(5,), output_size=2)
 
         with pytest.raises(ValueError, match="Cannot sample from empty buffer"):
             buffer.sample(batch_size=1)
 
     def test_sample_batch_size_exceeds_buffer_raises_error(self):
         """Test that sampling more than buffer size raises error."""
-        buffer = ReservoirBuffer(capacity=10, input_shape=(5,))
+        buffer = ReservoirBuffer(capacity=10, input_shape=(5,), output_size=2)
 
         buffer.add(torch.randn(5), torch.randn(2))
 
@@ -465,7 +465,7 @@ class TestReservoirSampling:
 
     def test_sample_returns_correct_batch_size(self):
         """Test that sample returns requested batch size."""
-        buffer = ReservoirBuffer(capacity=10, input_shape=(5,))
+        buffer = ReservoirBuffer(capacity=10, input_shape=(5,), output_size=2)
 
         # Add 10 samples
         for _ in range(10):
@@ -480,7 +480,7 @@ class TestReservoirSampling:
 
     def test_sample_without_replacement(self):
         """Test that sampling is without replacement within a batch."""
-        buffer = ReservoirBuffer(capacity=10, input_shape=(1,))
+        buffer = ReservoirBuffer(capacity=10, input_shape=(1,), output_size=1)
 
         # Add 10 unique samples
         for i in range(10):
@@ -497,7 +497,7 @@ class TestReservoirSampling:
 
     def test_get_all_returns_all_samples(self):
         """Test that get_all returns all buffered samples."""
-        buffer = ReservoirBuffer(capacity=5, input_shape=(3,))
+        buffer = ReservoirBuffer(capacity=5, input_shape=(3,), output_size=2)
 
         # Add 3 samples
         for i in range(3):
@@ -510,7 +510,7 @@ class TestReservoirSampling:
 
     def test_get_all_empty_buffer_raises_error(self):
         """Test that get_all on empty buffer raises error."""
-        buffer = ReservoirBuffer(capacity=10, input_shape=(5,))
+        buffer = ReservoirBuffer(capacity=10, input_shape=(5,), output_size=2)
 
         with pytest.raises(ValueError, match="Buffer is empty"):
             buffer.get_all()
@@ -521,7 +521,7 @@ class TestReservoirEdgeCases:
 
     def test_capacity_one(self):
         """Test buffer with capacity of 1."""
-        buffer = ReservoirBuffer(capacity=1, input_shape=(5,))
+        buffer = ReservoirBuffer(capacity=1, input_shape=(5,), output_size=1)
 
         # Add multiple samples
         for i in range(10):
@@ -540,7 +540,7 @@ class TestReservoirEdgeCases:
 
     def test_multidimensional_states(self):
         """Test buffer with multidimensional state tensors."""
-        buffer = ReservoirBuffer(capacity=10, input_shape=(3, 4, 5))
+        buffer = ReservoirBuffer(capacity=10, input_shape=(3, 4, 5), output_size=2)
 
         state = torch.randn(3, 4, 5)
         target = torch.randn(2)

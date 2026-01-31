@@ -412,11 +412,6 @@ class DeepCFRTrainer:
             # Changed to 10 iterations (from 500) for faster debugging
             # Production: Use 500+ for full-scale runs
             if self.iteration > 10:
-                # DEBUG: Print once when strategy accumulation starts
-                if not hasattr(self, '_logged_accumulation'):
-                    print(f"DEBUG: Strategy accumulation STARTED at iter {self.iteration}")
-                    self._logged_accumulation = True
-
                 own_reach = reach_prob_0 if current_player == 0 else reach_prob_1
 
                 # Get strategy weight for this iteration (typically linear or PDCFR)
@@ -490,13 +485,6 @@ class DeepCFRTrainer:
 
         # Compute loss (MSE)
         loss = F.mse_loss(predictions, targets)
-
-        # DEBUG logging disabled for production (reduces I/O overhead)
-        # Uncomment for debugging scaling issues:
-        # if self.iteration % 1000 == 0:
-        #     print(f"DEBUG STATS (Iter {self.iteration}):")
-        #     print(f"  Targets: Mean={targets.mean().item():.2f}, Std={targets.std().item():.2f}")
-        #     print(f"  Predictions: Mean={predictions.mean().item():.2f}, Std={predictions.std().item():.2f}")
 
         # Backward pass
         self.optimizer.zero_grad()

@@ -160,6 +160,10 @@ def vr_pdcfr_loss(
 def regret_matching(advantages: torch.Tensor) -> torch.Tensor:
     """Apply regret matching to convert advantages to strategy.
 
+    CRITICAL FIX: When all advantages are negative, use argmax to pick
+    the "least bad" action instead of uniform random (which causes
+    suicidal bluffs like All-In with trash hands).
+
     Args:
         advantages: Shape (batch, num_actions)
 
@@ -168,8 +172,13 @@ def regret_matching(advantages: torch.Tensor) -> torch.Tensor:
     """
     positive = torch.relu(advantages)
     sum_positive = positive.sum(dim=1, keepdim=True)
-    uniform = torch.ones_like(advantages) / advantages.shape[1]
-    return torch.where(sum_positive > 0, positive / sum_positive, uniform)
+
+    # Argmax fallback: one-hot for the action with highest advantage
+    argmax_indices = advantages.argmax(dim=1)
+    argmax_onehot = torch.zeros_like(advantages)
+    argmax_onehot.scatter_(1, argmax_indices.unsqueeze(1), 1.0)
+
+    return torch.where(sum_positive > 0, positive / sum_positive, argmax_onehot)
 
 
 def train_epoch_simulated(

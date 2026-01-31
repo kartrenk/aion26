@@ -9,7 +9,9 @@ def regret_matching(regrets: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]
 
     Regret Matching is the core strategy update rule in CFR:
     - Strategy for action a is proportional to max(0, regret_a)
-    - If all regrets are non-positive, use uniform random strategy
+    - CRITICAL FIX: If all regrets are non-positive, use argmax to pick
+      the "least bad" action instead of uniform random (which causes
+      suicidal bluffs like All-In with trash hands)
 
     Args:
         regrets: Array of cumulative regrets for each action
@@ -23,10 +25,13 @@ def regret_matching(regrets: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]
     # Sum of positive regrets
     regret_sum = positive_regrets.sum()
 
-    # If no positive regrets, use uniform strategy
+    # If no positive regrets, use argmax fallback (deterministic, picks "least bad")
     if regret_sum <= 0.0:
         num_actions = len(regrets)
-        return np.ones(num_actions, dtype=np.float64) / num_actions
+        result = np.zeros(num_actions, dtype=np.float64)
+        best_idx = np.argmax(regrets)  # Pick action with highest (least negative) regret
+        result[best_idx] = 1.0
+        return result
 
     # Normalize positive regrets to get strategy
     return positive_regrets / regret_sum

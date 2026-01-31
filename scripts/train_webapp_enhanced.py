@@ -156,13 +156,23 @@ def encode_state(game_state, player: int) -> np.ndarray:
 
 
 def regret_matching(advantages: np.ndarray, legal_actions: list) -> np.ndarray:
-    """Convert advantages to strategy via regret matching."""
+    """Convert advantages to strategy via regret matching.
+
+    CRITICAL FIX: When all advantages are negative, use argmax to pick
+    the "least bad" action instead of uniform random (which causes
+    suicidal bluffs like All-In with trash hands).
+    """
     legal_advantages = np.array([advantages[a] if a < len(advantages) else 0.0 for a in legal_actions])
     positive = np.maximum(legal_advantages, 0)
     total = positive.sum()
     if total > 0:
         return positive / total
-    return np.ones(len(legal_actions)) / len(legal_actions)
+    else:
+        # Argmax fallback: pick the action with highest (least negative) advantage
+        best_idx = np.argmax(legal_advantages)
+        result = np.zeros(len(legal_actions))
+        result[best_idx] = 1.0
+        return result
 
 
 # ============================================================================

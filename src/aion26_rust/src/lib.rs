@@ -2,16 +2,24 @@ use pyo3::prelude::*;
 
 mod evaluator;
 mod io;
+mod io_full;
 mod river;
+mod game_full;
 mod tabular;
 mod trainer;
 mod parallel_trainer;
+mod parallel_trainer_full;
+mod flop_abstraction;
+mod solver_db;  // Future: Pre-computed strategy database
 
 use evaluator::{evaluate_7_cards as eval_rust, get_hand_category, card_to_string};
 use river::RustRiverHoldem;
+use game_full::RustFullHoldem;
 use tabular::TabularCFR;
 use trainer::{RustTrainer, StepResult};
 use parallel_trainer::{ParallelTrainer, StepResultPar};
+use parallel_trainer_full::{ParallelTrainerFull, StepResultFull};
+use flop_abstraction::{PyFlopBucketing, py_generate_canonical_flops, py_num_canonical_flops, py_create_texture_buckets, py_get_flop_bucket};
 
 /// Evaluate a 7-card poker hand
 ///
@@ -71,10 +79,19 @@ fn aion26_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_category, m)?)?;
     m.add_function(wrap_pyfunction!(card_str, m)?)?;
     m.add_class::<RustRiverHoldem>()?;
+    m.add_class::<RustFullHoldem>()?;
     m.add_class::<TabularCFR>()?;
     m.add_class::<RustTrainer>()?;
     m.add_class::<StepResult>()?;
     m.add_class::<ParallelTrainer>()?;
     m.add_class::<StepResultPar>()?;
+    m.add_class::<ParallelTrainerFull>()?;
+    m.add_class::<StepResultFull>()?;
+    // Flop abstraction
+    m.add_class::<PyFlopBucketing>()?;
+    m.add_function(wrap_pyfunction!(py_generate_canonical_flops, m)?)?;
+    m.add_function(wrap_pyfunction!(py_num_canonical_flops, m)?)?;
+    m.add_function(wrap_pyfunction!(py_create_texture_buckets, m)?)?;
+    m.add_function(wrap_pyfunction!(py_get_flop_bucket, m)?)?;
     Ok(())
 }

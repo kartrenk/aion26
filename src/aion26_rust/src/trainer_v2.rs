@@ -508,7 +508,21 @@ impl RustTrainerV2 {
         if sum > 0.0 {
             positive_regrets.iter().map(|&r| r / sum).collect()
         } else {
-            vec![0.25; 4]  // Uniform fallback
+            // CRITICAL FIX: When all advantages are negative, use argmax to pick
+            // the "least bad" action instead of uniform random
+            let mut best_idx = 0;
+            let mut best_val = advantages[0];
+            for (i, &val) in advantages.iter().enumerate() {
+                if val > best_val {
+                    best_val = val;
+                    best_idx = i;
+                }
+            }
+            let mut result = vec![0.0; 4];
+            if best_idx < 4 {
+                result[best_idx] = 1.0;
+            }
+            result
         }
     }
 
